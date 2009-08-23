@@ -662,12 +662,38 @@ dvb_base_bin_rebuild_filter (DvbBaseBin * dvbbasebin)
   dvbbasebin->filter = NULL;
 }
 
+static guint16
+get_ca_pid (GPtrArray * descriptors)
+{
+  guint16 pid, cas_id;
+  const GstMpegTsDescriptor *desc;
+
+  desc =
+      gst_mpegts_find_descriptor (descriptors, GST_MTS_DESC_DVB_CA_IDENTIFIER);
+  if (desc
+      && gst_mpegts_descriptor_parse_dvb_ca_identifier (desc, &cas_id, &pid)
+      && (cas_id == 0x0005 || cas_id == 0x000a))
+    return pid;
+
+  return 0x1fff;
+}
+
 static void
 dvb_base_bin_remove_pmt_streams (DvbBaseBin * dvbbasebin,
     const GstMpegTsPMT * pmt)
 {
   gint i;
   DvbBaseBinStream *stream;
+  guint16 pid;
+
+  pid = get_ca_pid (pmt->descriptors);
+  if (pid != 0x1fff) {
+    stream = dvb_base_bin_get_stream (dvbbasebin, pid);
+    if (stream == NULL)
+      GST_WARNING_OBJECT (dvbbasebin, "removing unknown ca stream %d ??", pid);
+    else
+      --stream->usecount;
+  }
 
   for (i = 0; i < pmt->streams->len; i++) {
     GstMpegTsPMTStream *pmtstream = g_ptr_array_index (pmt->streams, i);
@@ -679,6 +705,15 @@ dvb_base_bin_remove_pmt_streams (DvbBaseBin * dvbbasebin,
       continue;
     }
 
+    pid = get_ca_pid (pmtstream->descriptors);
+    if (pid != 0x1fff) {
+      stream = dvb_base_bin_get_stream (dvbbasebin, pid);
+      if (stream == NULL)
+        GST_WARNING_OBJECT (dvbbasebin, "removing unknown stream %d ??", pid);
+      else
+        --stream->usecount;
+    }
+
     --stream->usecount;
   }
 }
@@ -688,6 +723,15 @@ dvb_base_bin_add_pmt_streams (DvbBaseBin * dvbbasebin, const GstMpegTsPMT * pmt)
 {
   DvbBaseBinStream *stream;
   gint i;
+  guint pid;
+
+  pid = get_ca_pid (pmt->descriptors);
+  if (pid != 0x1fff) {
+    stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
+    if (stream == NULL)
+      stream = dvb_base_bin_add_stream (dvbbasebin, (guint16) pid);
+    ++stream->usecount;
+  }
 
   for (i = 0; i < pmt->streams->len; i++) {
     GstMpegTsPMTStream *pmtstream = g_ptr_array_index (pmt->streams, i);
@@ -699,6 +743,14 @@ dvb_base_bin_add_pmt_streams (DvbBaseBin * dvbbasebin, const GstMpegTsPMT * pmt)
     if (stream == NULL)
       stream = dvb_base_bin_add_stream (dvbbasebin, pmtstream->pid);
     ++stream->usecount;
+
+    pid = get_ca_pid (pmtstream->descriptors);
+    if (pid != 0x1fff) {
+      stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
+      if (stream == NULL)
+        stream = dvb_base_bin_add_stream (dvbbasebin, (guint16) pid);
+      ++stream->usecount;
+    }
   }
 }
 

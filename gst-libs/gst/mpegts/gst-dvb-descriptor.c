@@ -284,3 +284,32 @@ gst_mpegts_descriptor_parse_dvb_short_event (const GstMpegTsDescriptor *
     *text = get_encoding_and_convert ((const gchar *) data + 1, *data);
   return TRUE;
 }
+
+/* GST_MTS_DESC_DVB_CA_IDENTIFIER (0x53) */
+/**
+ * gst_mpegts_descriptor_parse_dvb_ca_identifier:
+ * @descriptor: a %GST_MTS_DESC_DVB_CA_IDENTIFIER #GstMpegTsDescriptor
+ * @ca_system_id: (out) (allow-none): the CA system id
+ * @ca_pid: (out) (allow-none): the CA pid
+ *
+ * Extracts the CA identifier information from @descriptor.
+ *
+ * Returns: %TRUE if parsing succeeded, else %FALSE.
+ */
+gboolean
+gst_mpegts_descriptor_parse_dvb_ca_identifier (const GstMpegTsDescriptor *
+    descriptor, guint16 * ca_system_id, guint16 * ca_pid)
+{
+  guint8 *data;
+
+  g_return_val_if_fail (descriptor != NULL && descriptor->data != NULL, FALSE);
+  g_return_val_if_fail (descriptor->tag == 0x50, FALSE);
+
+  data = (guint8 *) descriptor->data + 2;
+
+  if (ca_system_id)
+    *ca_system_id = GST_READ_UINT16_BE (data) & 0x1FFF;
+  if (ca_pid)
+    *ca_pid = GST_READ_UINT16_BE (data + 2) & 0x1FFF;
+  return TRUE;
+}
