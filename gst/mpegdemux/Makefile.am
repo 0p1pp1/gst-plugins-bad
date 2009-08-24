@@ -10,6 +10,7 @@ libgstmpegdemux_la_SOURCES = \
 	gstmpegtsdemux.c \
 	gstpesfilter.c \
 	gstsectionfilter.c \
+	arib_b24_str.c \
 	mpegtsparse.c \
 	mpegtspacketizer.c
 

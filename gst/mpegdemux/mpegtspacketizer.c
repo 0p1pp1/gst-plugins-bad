@@ -1,5 +1,6 @@
 /*
  * mpegtspacketizer.c - 
+ * Copyright (C) 2009 0p1pp1
  * Copyright (C) 2007, 2008 Alessandro Decina, Zaheer Merali
  * 
  * Authors:
@@ -419,6 +420,9 @@ mpegts_packetizer_parse_pat (MpegTSPacketizer * packetizer,
 
     pmt_pid = GST_READ_UINT16_BE (data) & 0x1FFF;
     data += 2;
+
+    if (program_number == 0)
+      continue;
 
     struct_name = g_strdup_printf ("program-%d", program_number);
     entry = gst_structure_new (struct_name, NULL);
@@ -2545,6 +2549,8 @@ convert_to_utf8 (const gchar * text, gint length, guint start,
   return new_text;
 }
 
+extern gchar *aribstr_to_utf8 (const gchar * text, guint length);
+
 static gchar *
 get_encoding_and_convert (const gchar * text, guint length)
 {
@@ -2553,6 +2559,10 @@ get_encoding_and_convert (const gchar * text, guint length)
   gchar *encoding;
   guint start_text = 0;
   gboolean is_multibyte;
+
+  if (1) {
+    return aribstr_to_utf8 (text, length);
+  }
 
   g_return_val_if_fail (text != NULL, NULL);
 
