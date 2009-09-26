@@ -103,6 +103,8 @@ typedef struct
   guint section_length;
   guint8 version_number;
   guint8 current_next_indicator;
+  guint8 section_number;
+  guint8 last_section_number;
   guint32 crc;
 } MpegTSPacketizerSection; 
 
@@ -114,6 +116,7 @@ typedef struct
    * section_syntax_indicator is 0, sub_table_extension will be set to 0 */
   guint16 subtable_extension;
   guint8 version_number;
+  guint8 section_number;
   guint32 crc;
 } MpegTSPacketizerStreamSubtable;
 
@@ -136,6 +139,8 @@ void mpegts_packetizer_clear_packet (MpegTSPacketizer *packetizer,
 void mpegts_packetizer_remove_stream(MpegTSPacketizer *packetizer, 
   gint16 pid);
 
+gboolean mpegts_packetizer_push_section0 (MpegTSPacketizer *packetzer,
+  MpegTSPacketizerPacket *packet, MpegTSPacketizerSection *section);
 gboolean mpegts_packetizer_push_section (MpegTSPacketizer *packetzer,
   MpegTSPacketizerPacket *packet, MpegTSPacketizerSection *section);
 GstStructure *mpegts_packetizer_parse_pat (MpegTSPacketizer *packetizer,

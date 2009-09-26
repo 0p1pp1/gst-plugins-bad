@@ -1374,20 +1374,31 @@ mpegts_parse_chain (GstPad * pad, GstBuffer * buf)
     if (packet.payload != NULL && mpegts_parse_is_psi (parse, &packet)) {
       MpegTSPacketizerSection section;
 
-      parsed = mpegts_packetizer_push_section (packetizer, &packet, &section);
-      if (G_UNLIKELY (!parsed))
-        /* bad section data */
-        goto next;
-
-      if (G_LIKELY (section.complete)) {
-        /* section complete */
+      parsed = mpegts_packetizer_push_section0 (packetizer, &packet, &section);
+      if (parsed && section.complete) {
         parsed = mpegts_parse_handle_psi (parse, &section);
         gst_buffer_unref (section.buffer);
-
-        if (G_UNLIKELY (!parsed))
-          /* bad PSI table */
-          goto next;
       }
+      if (G_UNLLIKELY (!parsed))
+        goto next;
+
+      do {
+        parsed = mpegts_packetizer_push_section (packetizer, &packet, &section);
+        if (G_UNLIKEY (!parsed))
+          /* bad section data */
+          goto next;
+
+        if (G_LIKELY (section.complete)) {
+          /* section complete */
+          parsed = mpegts_parse_handle_psi (parse, &section);
+          gst_buffer_unref (section.buffer);
+
+          if (G_UNLIKELY (!parsed))
+            /* bad PSI table */
+            goto next;
+        }
+      } while (packet.data < packet.data_end);
+
       /* we need to push section packet downstream */
       res = mpegts_parse_push (parse, &packet, &section);
 
