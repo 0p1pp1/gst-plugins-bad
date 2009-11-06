@@ -342,6 +342,9 @@ dvb_base_bin_init (DvbBaseBin * dvbbasebin, DvbBaseBinClass * klass)
   dvbbasebin->buffer_queue = gst_element_factory_make ("queue", NULL);
   dvbbasebin->mpegtsparse = gst_element_factory_make ("mpegtsparse", NULL);
 
+  g_object_set (G_OBJECT (dvbbasebin->buffer_queue),
+      "max-size-buffers", 1000, "leaky", TRUE, NULL);
+
   g_object_connect (dvbbasebin->mpegtsparse,
       "signal::pad-added", dvb_base_bin_pad_added_cb, dvbbasebin,
       "signal::pad-removed", dvb_base_bin_pad_removed_cb, dvbbasebin, NULL);

@@ -2328,6 +2328,8 @@ gst_mpegts_demux_parse_adaptation_field (GstMpegTSStream * stream,
                           && demux->streams[cur_entry->PID]) {
                         demux->streams[cur_entry->PID]->base_time +=
                             stream->discont_difference;
+                        // added for playing back of concatenated TS 
+                        demux->streams[cur_entry->PID]->discont = TRUE;
                       }
                     }
                   } else {
@@ -2820,6 +2822,9 @@ gst_mpegts_demux_parse_stream (GstMpegTSDemux * demux, GstMpegTSStream * stream,
     transport_scrambling_control = 0;
   }
 #endif
+
+  if (transport_scrambling_control)
+    goto skip;
 
   /* If this packet has a payload, handle it */
   if ((adaptation_field_control & 0x1)) {
