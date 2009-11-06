@@ -207,6 +207,7 @@ gst_faad_reset (GstFaad * faad)
 {
   faad->samplerate = -1;
   faad->channels = -1;
+  faad->fr_channels = 0;
   faad->init = FALSE;
   faad->packetised = FALSE;
   g_free (faad->channel_positions);
@@ -503,6 +504,8 @@ gst_faad_update_caps (GstFaad * faad, faacDecFrameInfo * info)
   if (G_LIKELY (!fmt_change))
     return TRUE;
 
+  GST_DEBUG_OBJECT (faad, "update_caps. ch:%d->%d sr:%d->%d",
+      faad->channels, info->channels, faad->samplerate, info->samplerate);
   /* store new negotiation information */
   faad->samplerate = info->samplerate;
   faad->channels = info->channels;
@@ -579,6 +582,9 @@ gst_faad_sync (GstFaad * faad, const guint8 * data, guint size, gboolean next,
 
       len = ((data[n + 3] & 0x03) << 11) |
           (data[n + 4] << 3) | ((data[n + 5] & 0xe0) >> 5);
+      // rescue un-labled framed input 
+      if (!n && n + len + 2 == size)
+        return TRUE;
       if (n + len + 2 >= size) {
         GST_LOG_OBJECT (faad, "Frame size %d, next frame is not within reach",
             len);
@@ -734,6 +740,7 @@ init:
     if (!faad->packetised) {
       /* faad only really parses ADTS header at Init time, not when decoding,
        * so monitor for changes and kick faad when needed */
+      // FIXME: 1) what if ADIF header comes? 2) should be >> 6
       if (GST_READ_UINT32_BE (input_data) >> 4 != faad->last_header >> 4) {
         GST_DEBUG_OBJECT (faad, "ADTS header changed, forcing Init");
         faad->last_header = GST_READ_UINT32_BE (input_data);
@@ -741,6 +748,53 @@ init:
         gst_faad_close_decoder (faad);
         faad->init = FALSE;
         goto init;
+      }
+    }
+
+    /* sync */
+    while (input_size > FAAD_MIN_STREAMSIZE) {
+      if (looks_like_valid_header (input_data, input_size))
+        break;
+      input_data++;
+      input_size--;
+    }
+    if (input_size <= FAAD_MIN_STREAMSIZE) {
+      GST_DEBUG_OBJECT (faad, "found some garbage data.");
+      break;
+    }
+
+    if ((GST_READ_UINT16_BE (input_data) & 0xFFF6) == 0xFFF0) {
+      guint fr_ch;
+      static const guint32 sample_rate[] = {
+        96000, 88200, 64000, 48000, 44100, 32000,
+        24000, 22050, 16000, 12000, 11025, 8000, 0, 0, 0, 0
+      };
+#if FAAD2_MINOR_VERSION >= 7
+      unsigned long rate;
+#else
+      guint32 rate;
+#endif
+      guint8 ch;
+      /* guint profile; */
+
+      fr_ch = (input_data[2] & 0x01) << 2 | (input_data[3] >> 6);
+      rate = sample_rate[(input_data[2] & 0x3C) >> 2];
+      /* profile = (input_data[2] & 0xC0) >> 6; */
+
+      if (faad->fr_channels != fr_ch || faad->samplerate != rate) {
+        GST_INFO_OBJECT (faad, "Changing configuration. rate=%u,channels=%u",
+            rate, fr_ch);
+        faacDecClose (faad->handle);
+        faad->init = FALSE;
+        if (!gst_faad_open_decoder (faad) ||
+            faacDecInit (faad->handle, input_data, input_size, &rate, &ch) < 0)
+          goto out;
+
+        faad->init = TRUE;
+        faad->fr_channels = fr_ch;
+        faad->samplerate = rate;
+        /* make sure we create new caps below */
+        faad->channels = 0;
       }
     }
 
