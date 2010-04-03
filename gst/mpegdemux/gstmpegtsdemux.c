@@ -2565,6 +2565,9 @@ gst_mpegts_stream_parse_pat (GstMpegTSStream * stream,
     entry.PID &= 0x1fff;
     data += 2;
 
+    if (entry.program_number == 0)
+      continue;
+
     /* get/create stream for PMT */
     PMT_stream = gst_mpegts_demux_get_stream_for_PID (demux, entry.PID);
     if (PMT_stream->PID_type != PID_TYPE_PROGRAM_MAP) {
