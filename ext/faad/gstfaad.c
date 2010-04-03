@@ -778,6 +778,13 @@ init:
       /* guint profile; */
 
       fr_ch = (input_data[2] & 0x01) << 2 | (input_data[3] >> 6);
+      /* adhock work-around for streams with ISDB-T/S specific audio config,
+         where the nch in ADTS header is set to 0 and PCE inserted.
+         used for dual-mono(1+1ch), 2+1ch, 2+2ch,
+         but only dual-mono is encouraged. see ARIB-STD B32  */
+      if (fr_ch == 0)
+        fr_ch = 2;
+
       rate = sample_rate[(input_data[2] & 0x3C) >> 2];
       /* profile = (input_data[2] & 0xC0) >> 6; */
 
