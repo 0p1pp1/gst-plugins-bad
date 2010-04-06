@@ -294,7 +294,7 @@ aribstr_to_utf8 (const gchar * source, const guint len)
   g_return_val_if_fail (source != NULL, NULL);
 
   if (len == 0)
-    return g_strdup ("");
+    return NULL;
 
   mode = NORMAL;
   state = state_def;
@@ -463,7 +463,7 @@ printf("ilen:%d olen:%d\n", len, euc_str->len);
       "utf-8", "EUC-JISX0213", NULL, &used, NULL, NULL);
   if (!converted_str) {
 //printf("iconv error. [%#02hhx]  %d char. left.\n", euc_str->str[used], euc_str->len - used);
-    converted_str = g_strdup ("");
+    converted_str = g_strdup ("<charset conversion failed>");
   }
   g_string_free (euc_str, TRUE);
   return converted_str;
