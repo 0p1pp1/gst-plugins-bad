@@ -168,6 +168,10 @@ gst_mpeg_descriptor_find_all (GstMPEGDescriptor * desc, gint tag)
   }
 
   GST_DEBUG ("found tag 0x%02x %d times", tag, all->len);
+  if (all->len < 1) {
+    g_array_free (all, TRUE);
+    all = NULL;
+  }
 
   return all;
 }
