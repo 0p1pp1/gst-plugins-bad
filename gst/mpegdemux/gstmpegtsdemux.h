@@ -213,6 +213,7 @@ struct _GstMpegTSStream {
   gboolean          discont;
   /* pid of ECM that this stream belongs to */
   guint16           ECM_pid;
+  gint              tag; /* component tag. used in vid/aid filtering */
 };
 
 
@@ -242,7 +243,13 @@ struct _GstMpegTSDemux {
 
   /* Program number to use */
   gint              program_number;
-
+  /*
+   * specify the vid'th video stream in PMT to be the src.
+   *  based on the "component tag" in PMT
+   *  -1:none,all streams become src's   0:default stream
+   */ 
+  gint              vid;
+  gint              aid;
   /* indicates that we need to close our pad group, because we've added
    * at least one pad */
   gboolean          need_no_more_pads;

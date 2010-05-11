@@ -105,6 +105,8 @@ enum
   PROP_PAT_INFO,
   PROP_PMT_INFO,
   PROP_BCAS_DESCRAMBLE,
+  PROP_VID,
+  PROP_AID,
 };
 
 #define GSTTIME_TO_BYTES(time) \
@@ -322,6 +324,18 @@ gst_mpegts_demux_class_init (GstMpegTSDemuxClass * klass)
           "Defines if trying to descramble the BCAS scrambled input. "
           "BCAS is deployed in Japanese DTV.", TRUE, G_PARAM_READWRITE));
 
+  g_object_class_install_property (gobject_class, PROP_VID,
+      g_param_spec_int ("vid", "Select vid'th video stream",
+          "Demux only the vid'th video in PMT. "
+          "-1 to select all, 0 to select the default one",
+          -1, 15, 0, G_PARAM_READWRITE));
+
+  g_object_class_install_property (gobject_class, PROP_AID,
+      g_param_spec_int ("aid", "Select aid'th audioo stream",
+          "Demux only the aid'th audio in PMT. "
+          "-1 to select all, 0 to select the default one",
+          -1, 31, 0, G_PARAM_READWRITE));
+
   gstelement_class->change_state = gst_mpegts_demux_change_state;
   gstelement_class->provide_clock = gst_mpegts_demux_provide_clock;
 }
@@ -343,6 +357,8 @@ gst_mpegts_demux_init (GstMpegTSDemux * demux)
   demux->nb_elementary_pids = 0;
   demux->check_crc = DEFAULT_PROP_CHECK_CRC;
   demux->program_number = DEFAULT_PROP_PROGRAM_NUMBER;
+  demux->vid = 0;
+  demux->aid = 0;
   demux->sync_lut = NULL;
   demux->sync_lut_len = 0;
   demux->bitrate = -1;
@@ -659,6 +675,7 @@ gst_mpegts_demux_cleanup_stream (GstMpegTSDemux * demux, guint16 PID)
       }
       if (stream->ES_info)
         gst_mpeg_descriptor_free (stream->ES_info);
+      stream->tag = -1;
       break;
   }
 
@@ -746,6 +763,7 @@ gst_mpegts_demux_get_stream_for_PID (GstMpegTSDemux * demux, guint16 PID)
     stream->PMT_pid = MPEGTS_MAX_PID + 1;
     stream->flags |= MPEGTS_STREAM_FLAG_STREAM_TYPE_UNKNOWN;
     stream->pes_buffer_in_sync = FALSE;
+    stream->tag = -1;
     switch (PID) {
         /* check for fixed mapping */
       case PID_PROGRAM_ASSOCIATION_TABLE:
@@ -1897,6 +1915,7 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
     guint8 stream_type;
     guint16 ES_info_length;
     guint8 *ca_desc;
+    guint8 *stream_id_desc;
 
     stream_type = *data++;
 
@@ -2006,6 +2025,14 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
       entry.stream_ECM_PID = PMT->program_ECM_PID;
     }
     ES_stream->ECM_pid = entry.stream_ECM_PID;
+
+    stream_id_desc = gst_mpeg_descriptor_find (ES_stream->ES_info,
+        DESC_DVB_STREAM_IDENTIFIER);
+    if (stream_id_desc)
+      ES_stream->tag =
+          DESC_DVB_STREAM_IDENTIFIER_component_tag (stream_id_desc);
+    else
+      ES_stream->tag = -1;
 
     /* skip descriptor */
     data += ES_info_length;
@@ -2741,6 +2768,40 @@ gst_mpegts_demux_push_fragment (GstMpegTSStream * stream,
   return ret;
 }
 
+static gboolean
+should_skip_this_stream (GstMpegTSDemux * demux, GstMpegTSStream * stream)
+{
+  /* don't know about the stream's progid, or  different from the target progid */
+  if (demux->program_number != -1) {
+    if (stream->PMT_pid > MPEGTS_MAX_PID)
+      return TRUE;
+    if (!demux->streams)
+      return TRUE;
+    if (!demux->streams[stream->PMT_pid])
+      return TRUE;
+    if (demux->program_number !=
+        demux->streams[stream->PMT_pid]->PMT.program_number)
+      return TRUE;
+  }
+
+  if (demux->vid == -1 && demux->aid == -1)
+    return FALSE;
+
+  /* don't know about the component tag. PMT must be received */
+  if (stream->tag == -1)
+    return TRUE;
+
+  /* not the target video stream */
+  if (stream->tag >= 0 && stream->tag <= 0x0f && demux->vid != stream->tag)
+    return TRUE;
+
+  if (stream->tag >= 0x10 && stream->tag <= 0x2f &&
+      demux->aid != stream->tag - 0x10)
+    return TRUE;
+
+  return FALSE;
+}
+
 /*
  * transport_packet(){
  *   sync_byte                                                               8 bslbf == 0x47
@@ -2844,6 +2905,7 @@ gst_mpegts_demux_parse_stream (GstMpegTSDemux * demux, GstMpegTSStream * stream,
         stream->flags |= MPEGTS_STREAM_FLAG_STREAM_TYPE_UNKNOWN;
         stream->base_time = 0;
         stream->last_time = 0;
+        stream->tag = -1;
 
         /* Clear any existing descriptor */
         if (stream->ES_info) {
@@ -2940,6 +3002,8 @@ gst_mpegts_demux_parse_stream (GstMpegTSDemux * demux, GstMpegTSStream * stream,
         break;
       case PID_TYPE_ELEMENTARY:
       {
+        if (should_skip_this_stream (demux, stream))
+          break;
         if (payload_unit_start_indicator) {
           GST_DEBUG_OBJECT (demux, "new PES start for PID 0x%04x, used %u "
               "bytes of %u bytes in the PES buffer",
@@ -3841,6 +3905,12 @@ gst_mpegts_demux_set_property (GObject * object, guint prop_id,
       demux->bcas_descramble = onoff;
 #endif
       break;
+    case PROP_VID:
+      demux->vid = g_value_get_int (value);
+      break;
+    case PROP_AID:
+      demux->aid = g_value_get_int (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -3893,6 +3963,12 @@ gst_mpegts_demux_get_property (GObject * object, guint prop_id,
     }
     case PROP_BCAS_DESCRAMBLE:
       g_value_set_boolean (value, demux->bcas_descramble);
+      break;
+    case PROP_VID:
+      g_value_set_int (value, demux->vid);
+      break;
+    case PROP_AID:
+      g_value_set_int (value, demux->aid);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
