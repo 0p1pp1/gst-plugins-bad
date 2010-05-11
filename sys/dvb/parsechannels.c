@@ -156,9 +156,36 @@ set_properties_for_channel (GObject * dvbbasebin, const gchar * channel_name)
 {
   gboolean ret = FALSE;
   GHashTable *channels;
-  gchar *filename;
+  gchar *filename = NULL;
+  const gchar *adapter = NULL;
+  gchar *frontend = NULL;
+  gchar **tokens, **params, **options = NULL;
+  gchar **p;
 
-  filename = g_strdup (g_getenv ("GST_DVB_CHANNELS_CONF"));
+  tokens = g_strsplit (channel_name, "@", 2);
+  if (g_strv_length (tokens) == 2) {
+    adapter = tokens[0];
+    channel_name = tokens[1];
+  }
+
+  params = g_strsplit (channel_name, "?", 2);
+  if (g_strv_length (params) == 2) {
+    channel_name = params[0];
+    options = g_strsplit (params[1], "&", 0);
+    for (p = options; p && *p; p++) {
+      if (g_str_has_prefix (*p, "card="))
+        adapter = (*p) + 5;
+      else if (g_str_has_prefix (*p, "adapter="))
+        adapter = (*p) + 8;
+      else if (g_str_has_prefix (*p, "file="))
+        filename = g_strdup ((*p) + 5);
+      else if (g_str_has_prefix (*p, "frontend="))
+        frontend = (*p) + 9;
+    }
+  }
+
+  if (filename == NULL)
+    filename = g_strdup (g_getenv ("GST_DVB_CHANNELS_CONF"));
   if (filename == NULL) {
     guint major, minor, micro, nano;
 
@@ -175,14 +202,17 @@ set_properties_for_channel (GObject * dvbbasebin, const gchar * channel_name)
 
     if (params) {
       gchar *type;
-      const gchar *adapter;
 
       g_object_set (dvbbasebin, "program-numbers",
           g_hash_table_lookup (params, "sid"), NULL);
       /* check if it is terrestrial or satellite */
-      adapter = g_getenv ("GST_DVB_ADAPTER");
+      if (adapter == NULL)
+        adapter = g_getenv ("GST_DVB_ADAPTER");
       if (adapter)
         g_object_set (dvbbasebin, "adapter", atoi (adapter), NULL);
+      if (frontend)
+        g_object_set (dvbbasebin, "frontend", atoi (frontend), NULL);
+
       if (g_hash_table_lookup (params, "frequency"))
         g_object_set (dvbbasebin, "frequency",
             atoi (g_hash_table_lookup (params, "frequency")), NULL);
@@ -398,6 +428,11 @@ set_properties_for_channel (GObject * dvbbasebin, const gchar * channel_name)
     }
     destroy_channels_hash (channels);
   }
+
+  if (options)
+    g_strfreev (options);
+  g_strfreev (params);
+  g_strfreev (tokens);
 
   return ret;
 }
