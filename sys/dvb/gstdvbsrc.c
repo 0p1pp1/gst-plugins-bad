@@ -924,18 +924,6 @@ gst_dvbsrc_open_frontend (GstDvbSrc * object)
   adapter_name = g_strdup (fe_info.name);
 
   object->adapter_type = fe_info.type;
-#if DVB_API_VERSION >= 5
-  /* if S2API is supported, change adapter_type to S2API */
-  tvp.cmd = DTV_DELIVERY_SYSTEM;
-  tvp.u.data = 0;
-  feprops.num = 1;
-  feprops.props = &tvp;
-  if (object->tvp_len &&
-      ioctl (object->fd_frontend, FE_GET_PROPERTY, &feprops) == 0)
-    if (feprops.props[0].result == 0 && feprops.props[0].u.data != 0)
-      object->adapter_type = FE_S2API;
-#endif
-
   switch (object->adapter_type) {
     case FE_QPSK:
       adapter_desc = "DVB-S";
@@ -974,20 +962,24 @@ gst_dvbsrc_open_frontend (GstDvbSrc * object)
           "type", G_TYPE_STRING, adapter_desc,
           "name", G_TYPE_STRING, adapter_name, NULL);
       break;
-#if DVB_API_VERSION >= 5
-    case FE_S2API:
-      adapter_desc = "S2API";
-      adapter_structure = gst_structure_new ("dvb-adapter",
-          "type", G_TYPE_STRING, adapter_desc,
-          "name", G_TYPE_STRING, adapter_name,
-          "delivery-system", G_TYPE_UINT, feprops.props[0].u.data, NULL);
-      break;
-#endif
     default:
       g_error ("Unknown frontend type: %d", object->adapter_type);
       adapter_structure = gst_structure_new ("dvb-adapter",
           "type", G_TYPE_STRING, "unknown", NULL);
   }
+#if DVB_API_VERSION >= 5
+  /* if S2API is supported, report dvb_delivery_system */
+  tvp.cmd = DTV_DELIVERY_SYSTEM;
+  tvp.u.data = 0;
+  feprops.num = 1;
+  feprops.props = &tvp;
+  if (ioctl (object->fd_frontend, FE_GET_PROPERTY, &feprops) < 0 ||
+      (feprops.props[0].result != 0))
+    feprops.props[0].u.data = 0;
+
+  gst_structure_set (adapter_structure,
+      "delivery-system", G_TYPE_UINT, feprops.props[0].u.data, NULL);
+#endif
 
   GST_INFO_OBJECT (object, "DVB card: %s ", adapter_name);
   gst_element_post_message (GST_ELEMENT_CAST (object), gst_message_new_element
@@ -1457,6 +1449,17 @@ gst_dvbsrc_tune (GstDvbSrc * object)
 
   gst_dvbsrc_unset_pes_filters (object);
   for (j = 0; j < 5; j++) {
+#if DVB_API_VERSION >= 5
+    if (object->tvp_len > 1) {
+      GST_INFO_OBJECT (object, "Tuning the frontend via S2API, %d props.",
+          object->tvp_len);
+      feprops.num = object->tvp_len;
+      feprops.props = object->tvps;
+      if (ioctl (object->fd_frontend, FE_SET_PROPERTY, &feprops) < 0)
+        g_warning ("Error tuning channel/s2api: %s", strerror (errno));
+      goto check_lock;
+    }
+#endif
     switch (object->adapter_type) {
       case FE_QPSK:
         object->tone = SEC_TONE_OFF;
@@ -1555,27 +1558,12 @@ gst_dvbsrc_tune (GstDvbSrc * object)
         feparams.u.vsb.modulation = object->modulation;
 #endif
         break;
-#if DVB_API_VERSION >= 5
-      case FE_S2API:
-        GST_INFO_OBJECT (object, "Tuning S2API device, %d props.",
-            object->tvp_len);
-        feprops.num = object->tvp_len;
-        feprops.props = object->tvps;
-        break;
-#endif
       default:
         g_error ("Unknown frontend type: %d", object->adapter_type);
 
     }
 
     /* now tune the frontend */
-#if DVB_API_VERSION >= 5
-    if (object->adapter_type == FE_S2API) {
-      if (object->tvp_len > 0)
-        if (ioctl (object->fd_frontend, FE_SET_PROPERTY, &feprops) < 0)
-          g_warning ("Error tuning channel/s2api: %s", strerror (errno));
-    } else
-#endif
 #if DVB_API_VERSION == 3 && DVB_API_VERSION_MINOR == 3
     if (ioctl (object->fd_frontend, DVBFE_SET_PARAMS, &feparams) < 0) {
 #else
@@ -1583,6 +1571,7 @@ gst_dvbsrc_tune (GstDvbSrc * object)
 #endif
       g_warning ("Error tuning channel: %s", strerror (errno));
     }
+  check_lock:
     for (i = 0; i < 50; i++) {
       usleep (100000);
       if (ioctl (object->fd_frontend, FE_READ_STATUS, &status) == -1) {
