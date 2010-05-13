@@ -5,6 +5,7 @@
 #include <gst/gst.h>
 #include <gst/base/gstpushsrc.h>
 #include <linux/dvb/frontend.h>
+#include <linux/dvb/version.h>
 
 G_BEGIN_DECLS
 
@@ -75,8 +76,10 @@ G_BEGIN_DECLS
     guint64 timeout;
 
     guint32 tvp_len;
+#if DVB_API_VERSION >= 5
     struct dtv_property tvps[DTV_IOCTL_MAX_MSGS];
- 
+#endif
+
     GstDvbSrcPol pol;
     guint stats_interval;
     guint stats_counter;
