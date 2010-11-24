@@ -509,11 +509,16 @@ gst_dvbsrc_init (GstDvbSrc * object, GstDvbSrcClass * klass)
 }
 
 #if DVB_API_VERSION >= 5
-#define S2API_SYMDEF(x) {#x, x}
+
+#ifndef DTV_ISDBS_TS_ID
+#define DTV_ISDBS_TS_ID 42
+#endif
+
+#define S2API_SYMDEF(x) {((gchar *)#x), x}
 
 static const struct
 {
-  const gchar *const name;
+  gchar *name;
   guint32 id;
 } s2api_symbols[] = {
   S2API_SYMDEF (DTV_UNDEFINED), S2API_SYMDEF (DTV_TUNE),
@@ -552,8 +557,7 @@ static const struct
 /*
       S2API_SYMDEF (DTV_ISDBT_LAYER_ENABLED), S2API_SYMDEF (DTV_ISDBS_TS_ID),
  */
-  {
-  "DTV_ISDBS_TS_ID", 42},
+      S2API_SYMDEF (DTV_ISDBS_TS_ID),
       S2API_SYMDEF (PILOT_ON), S2API_SYMDEF (PILOT_OFF),
       S2API_SYMDEF (PILOT_AUTO),
       S2API_SYMDEF (ROLLOFF_35), S2API_SYMDEF (ROLLOFF_20),
@@ -582,7 +586,7 @@ s2api_symbol_id (const gchar * p)
   if (s2api_tbl == NULL) {
     s2api_tbl = g_hash_table_new (g_str_hash, g_str_equal);
     for (i = 0; s2api_symbols[i].name != NULL; i++)
-      g_hash_table_insert (s2api_tbl, (gpointer) s2api_symbols[i].name,
+      g_hash_table_insert (s2api_tbl, s2api_symbols[i].name,
           GUINT_TO_POINTER (s2api_symbols[i].id));
   }
   return GPOINTER_TO_UINT (g_hash_table_lookup (s2api_tbl, p));
