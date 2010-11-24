@@ -1074,11 +1074,17 @@ gst_mpegts_demux_setup_base_pts (GstMpegTSDemux * demux, gint64 pts)
     GST_DEBUG_OBJECT (demux, "using base PCR %" G_GUINT64_FORMAT,
         PCR_stream->base_PCR);
   }
+  // workaroud/FIXME:
+  // don't set the given PES PTS as the base_PCR.
+  // Video PTS(!= DTS) is not monotonic
+  //  and it can go fast than the monotonic audio PTS or PCR. (by 0p1pp1)
+/*
   if (PCR_stream->last_PCR == -1) {
     GST_DEBUG_OBJECT (demux, "no last PCR, using PTS %" G_GUINT64_FORMAT, pts);
     PCR_stream->base_PCR = pts;
     PCR_stream->last_PCR = pts;
   }
+ */
   base_PCR = PCR_stream->base_PCR;
 
   demux->base_pts = MPEGTIME_TO_GSTTIME (base_PCR);
