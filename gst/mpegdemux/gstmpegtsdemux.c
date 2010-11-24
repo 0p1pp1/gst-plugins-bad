@@ -2798,11 +2798,12 @@ should_skip_this_stream (GstMpegTSDemux * demux, GstMpegTSStream * stream)
     return TRUE;
 
   /* not the target video stream */
-  if (stream->tag >= 0 && stream->tag <= 0x0f && demux->vid != stream->tag)
+  if (stream->tag >= 0 && stream->tag <= 0x0f &&
+      demux->vid != stream->tag && demux->vid != -1)
     return TRUE;
 
   if (stream->tag >= 0x10 && stream->tag <= 0x2f &&
-      demux->aid != stream->tag - 0x10)
+      demux->aid != stream->tag - 0x10 && demux->aid != -1)
     return TRUE;
 
   return FALSE;
