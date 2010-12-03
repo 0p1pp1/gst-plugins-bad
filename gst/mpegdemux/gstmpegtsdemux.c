@@ -845,6 +845,8 @@ gst_mpegts_demux_fill_stream (GstMpegTSStream * stream, guint8 id,
     case ST_PRIVATE_DATA:
       /* check if there is an AC3 descriptor associated with this stream
        * from the PMT */
+      if (!stream->ES_info)
+        break;
       if (gst_mpeg_descriptor_find (stream->ES_info, DESC_DVB_AC3)) {
         template = klass->audio_template;
         name = g_strdup_printf ("audio_%04x", stream->PID);
@@ -1892,7 +1894,8 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
   PMT->program_info =
       gst_mpeg_descriptor_parse (data, PMT->program_info_length);
 
-  ca_desc = gst_mpeg_descriptor_find (PMT->program_info, DESC_CA);
+  ca_desc = PMT->program_info ?
+      gst_mpeg_descriptor_find (PMT->program_info, DESC_CA) : NULL;
   if (G_LIKELY (ca_desc)) {
     guint16 cas_id = DESC_CA_system_ID (ca_desc);
 
@@ -2020,7 +2023,8 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
       }
     }
 
-    ca_desc = gst_mpeg_descriptor_find (ES_stream->ES_info, DESC_CA);
+    ca_desc = ES_stream->ES_info ?
+        gst_mpeg_descriptor_find (ES_stream->ES_info, DESC_CA) : NULL;
     if (ca_desc) {
       guint16 cas_id = DESC_CA_system_ID (ca_desc);
 
@@ -2032,8 +2036,9 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
     }
     ES_stream->ECM_pid = entry.stream_ECM_PID;
 
-    stream_id_desc = gst_mpeg_descriptor_find (ES_stream->ES_info,
-        DESC_DVB_STREAM_IDENTIFIER);
+    stream_id_desc = ES_stream->ES_info ?
+        gst_mpeg_descriptor_find (ES_stream->ES_info,
+        DESC_DVB_STREAM_IDENTIFIER) : NULL;
     if (stream_id_desc)
       ES_stream->tag =
           DESC_DVB_STREAM_IDENTIFIER_component_tag (stream_id_desc);
