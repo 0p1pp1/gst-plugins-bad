@@ -1142,7 +1142,7 @@ gst_mpegts_demux_send_new_segment (GstMpegTSDemux * demux,
 no_base_time:
   {
     /* check if it's in our partial ts pid list */
-    if (mpegts_is_elem_pid (demux, stream->PID)) {
+    if (mpegts_is_elem_pid (demux, stream->PID) && pts != GST_CLOCK_TIME_NONE) {
       GST_DEBUG_OBJECT (demux,
           "Elementary PID, using pts %" G_GUINT64_FORMAT, pts);
       time = MPEGTIME_TO_GSTTIME (pts) + stream->base_time;
