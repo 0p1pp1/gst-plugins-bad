@@ -68,7 +68,7 @@ G_BEGIN_DECLS
 
 #define IS_MPEGTS_SYNC(data) (((data)[0] == 0x47) && \
                                     (((data)[1] & 0x80) == 0x00) && \
-                                    (((data)[3] & 0x10) == 0x10))
+                                    (((data)[3] & 0x30) != 0x00))
 
 #define GST_TYPE_MPEGTS_DEMUX              (gst_mpegts_demux_get_type())
 #define GST_MPEGTS_DEMUX(obj)              (G_TYPE_CHECK_INSTANCE_CAST((obj),\

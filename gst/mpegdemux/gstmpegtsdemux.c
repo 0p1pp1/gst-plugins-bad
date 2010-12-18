@@ -3651,7 +3651,8 @@ gst_mpegts_demux_sync_scan (GstMpegTSDemux * demux, const guint8 * in_data,
     guint chance = is_mpegts_sync (ptr_data, end_scan, packetsize);
     /* not using high chance here, */
     /* to accept empty packets without payload nor adaptation filed. */
-    if (G_LIKELY (chance >= 35)) {
+    //if (G_LIKELY (chance >= 35)) {
+    if (G_LIKELY (chance > 50)) {
       /* skip paketsize bytes and try find next */
       demux->sync_lut[sync_count] = ptr_data;
       sync_count++;
