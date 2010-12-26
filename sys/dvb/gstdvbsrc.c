@@ -474,8 +474,7 @@ gst_dvbsrc_init (GstDvbSrc * object, GstDvbSrcClass * klass)
   GST_INFO_OBJECT (object, "gst_dvbsrc_init");
 
   /* We are a live source */
-//  gst_base_src_set_live (GST_BASE_SRC (object), TRUE);
-//  gst_base_src_set_do_timestamp (GST_BASE_SRC (object), TRUE);
+  gst_base_src_set_live (GST_BASE_SRC (object), TRUE);
 
   object->fd_frontend = -1;
   object->fd_dvr = -1;
