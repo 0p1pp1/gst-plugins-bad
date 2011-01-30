@@ -680,25 +680,28 @@ dvb_base_bin_remove_pmt_streams (DvbBaseBin * dvbbasebin, GstStructure * pmt)
   guint cas_id;
   gint j;
 
-  gst_structure_get (pmt, "descriptors", G_TYPE_VALUE_ARRAY, &descriptors,
-      NULL);
-  for (i = 0; i < descriptors->n_values; i++) {
-    value = g_value_array_get_nth (descriptors, i);
-    desc = g_value_get_boxed (value);
-    if (desc->str[0] != 0x09)
-      continue;
-    cas_id = desc->str[2] << 8 | desc->str[3];
-    if (cas_id != 0x0005 && cas_id != 0x000A)
-      continue;
-    pid = (desc->str[4] << 8 | desc->str[5]) & 0x1fff;
-    if (pid == 0x1fff)
-      continue;
-    stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
-    if (stream == NULL) {
-      GST_WARNING_OBJECT (dvbbasebin, "removing unknown stream %d ??", pid);
-      continue;
+  /* parse program-ecm in program descriptors */
+  if (gst_structure_has_field (pmt, "descriptors")) {
+    gst_structure_get (pmt, "descriptors", G_TYPE_VALUE_ARRAY, &descriptors,
+        NULL);
+    for (i = 0; i < descriptors->n_values; i++) {
+      value = g_value_array_get_nth (descriptors, i);
+      desc = g_value_get_boxed (value);
+      if (desc->str[0] != 0x09)
+        continue;
+      cas_id = desc->str[2] << 8 | desc->str[3];
+      if (cas_id != 0x0005 && cas_id != 0x000A)
+        continue;
+      pid = (desc->str[4] << 8 | desc->str[5]) & 0x1fff;
+      if (pid == 0x1fff)
+        continue;
+      stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
+      if (stream == NULL) {
+        GST_WARNING_OBJECT (dvbbasebin, "removing unknown stream %d ??", pid);
+        continue;
+      }
+      --stream->usecount;
     }
-    --stream->usecount;
   }
 
   gst_structure_get_uint (pmt, "program-number", &program_number);
@@ -718,6 +721,8 @@ dvb_base_bin_remove_pmt_streams (DvbBaseBin * dvbbasebin, GstStructure * pmt)
     }
 
     --stream->usecount;
+    if (!gst_structure_has_field (stream_info, "descriptors"))
+      continue;
 
     gst_structure_get (stream_info, "descriptors", G_TYPE_VALUE_ARRAY,
         &descriptors, NULL);
@@ -758,23 +763,25 @@ dvb_base_bin_add_pmt_streams (DvbBaseBin * dvbbasebin, GstStructure * pmt)
   guint cas_id;
   gint j;
 
-  gst_structure_get (pmt, "descriptors", G_TYPE_VALUE_ARRAY,
-      &descriptors, NULL);
-  for (i = 0; i < descriptors->n_values; i++) {
-    value = g_value_array_get_nth (descriptors, i);
-    desc = g_value_get_boxed (value);
-    if (desc->str[0] != 0x09)
-      continue;
-    cas_id = desc->str[2] << 8 | desc->str[3];
-    if (cas_id != 0x0005 && cas_id != 0x000A)
-      continue;
-    pid = (desc->str[4] << 8 | desc->str[5]) & 0x1fff;
-    if (pid == 0x1fff)
-      continue;
-    stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
-    if (stream == NULL)
-      stream = dvb_base_bin_add_stream (dvbbasebin, (guint16) pid);
-    ++stream->usecount;
+  if (gst_structure_has_field (pmt, "descriptors")) {
+    gst_structure_get (pmt, "descriptors", G_TYPE_VALUE_ARRAY,
+        &descriptors, NULL);
+    for (i = 0; i < descriptors->n_values; i++) {
+      value = g_value_array_get_nth (descriptors, i);
+      desc = g_value_get_boxed (value);
+      if (desc->str[0] != 0x09)
+        continue;
+      cas_id = desc->str[2] << 8 | desc->str[3];
+      if (cas_id != 0x0005 && cas_id != 0x000A)
+        continue;
+      pid = (desc->str[4] << 8 | desc->str[5]) & 0x1fff;
+      if (pid == 0x1fff)
+        continue;
+      stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
+      if (stream == NULL)
+        stream = dvb_base_bin_add_stream (dvbbasebin, (guint16) pid);
+      ++stream->usecount;
+    }
   }
 
   gst_structure_get_uint (pmt, "program-number", &program_number);
@@ -793,6 +800,8 @@ dvb_base_bin_add_pmt_streams (DvbBaseBin * dvbbasebin, GstStructure * pmt)
       stream = dvb_base_bin_add_stream (dvbbasebin, (guint16) pid);
 
     ++stream->usecount;
+    if (!gst_structure_has_field (stream_info, "descriptors"))
+      continue;
 
     gst_structure_get (stream_info, "descriptors", G_TYPE_VALUE_ARRAY,
         &descriptors, NULL);
