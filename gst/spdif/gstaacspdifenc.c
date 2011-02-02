@@ -20,6 +20,9 @@
  * Boston, MA 02111-1307, USA.
  */
 
+/** example esage: 
+ *  gst-launch filesrc location=foo.aac ! aacparse ! aac2spdif ! alsaspdifsink
+ */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
