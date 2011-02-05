@@ -470,11 +470,14 @@ static void
 gst_dvbsrc_init (GstDvbSrc * object, GstDvbSrcClass * klass)
 {
   int i = 0;
+  GstBaseSrc *base = GST_BASE_SRC (object);
 
   GST_INFO_OBJECT (object, "gst_dvbsrc_init");
 
-  /* We are a live source */
-  gst_base_src_set_live (GST_BASE_SRC (object), TRUE);
+  /* pretend non-live source, for playout to catch up the pace. */
+  gst_base_src_set_live (base, FALSE);
+  gst_base_src_set_do_timestamp (base, FALSE);
+  gst_base_src_set_format (base, GST_FORMAT_BYTES);
 
   object->fd_frontend = -1;
   object->fd_dvr = -1;

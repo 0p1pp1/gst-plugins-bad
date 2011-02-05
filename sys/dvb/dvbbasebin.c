@@ -1046,6 +1046,7 @@ dvb_base_bin_pad_added_cb (GstElement * mpegtsparse,
   program->ghost = gst_ghost_pad_new (padname, pad);
   gst_pad_set_active (program->ghost, TRUE);
   gst_element_add_pad (GST_ELEMENT (dvbbasebin), program->ghost);
+  gst_element_no_more_pads (GST_ELEMENT (dvbbasebin));
   /* if the program has a pmt, activate it now, otherwise it will get activated
    * when there's a PMT */
   if (!program->active && program->pmt_pid != G_MAXUINT16)
