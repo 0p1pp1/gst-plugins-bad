@@ -79,6 +79,7 @@ G_BEGIN_DECLS
 #if DVB_API_VERSION >= 5
     struct dtv_property tvps[DTV_IOCTL_MAX_MSGS];
 #endif
+    gboolean need_discont;
 
     GstDvbSrcPol pol;
     guint stats_interval;

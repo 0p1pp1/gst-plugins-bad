@@ -1163,6 +1163,10 @@ gst_dvbsrc_create (GstPushSrc * element, GstBuffer ** buf)
 
       retval = GST_FLOW_OK;
 
+      if (object->need_discont) {
+        GST_BUFFER_FLAG_SET (*buf, GST_BUFFER_FLAG_DISCONT);
+        object->need_discont = FALSE;
+      }
       caps = gst_pad_get_caps (GST_BASE_SRC_PAD (object));
       gst_buffer_set_caps (*buf, caps);
       gst_caps_unref (caps);
@@ -1187,7 +1191,6 @@ gst_dvbsrc_change_state (GstElement * element, GstStateChange transition)
   GstStateChangeReturn ret;
 
   src = GST_DVBSRC (element);
-  ret = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
 
   switch (transition) {
     case GST_STATE_CHANGE_NULL_TO_READY:
@@ -1197,9 +1200,14 @@ gst_dvbsrc_change_state (GstElement * element, GstStateChange transition)
         close (src->fd_frontend);
       }
       break;
+    case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
+      src->need_discont = TRUE;
+      break;
     default:
       break;
   }
+
+  ret = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
 
   return ret;
 }
