@@ -1452,12 +1452,8 @@ mpegts_parse_src_pad_query (GstPad * pad, GstQuery * query)
         GstClockTime min_latency, max_latency;
 
         gst_query_parse_latency (query, &is_live, &min_latency, &max_latency);
-        if (is_live) {
-          if (min_latency != GST_CLOCK_TIME_NONE)
-            min_latency += TS_LATENCY * GST_MSECOND;
-          if (max_latency != GST_CLOCK_TIME_NONE)
-            max_latency += TS_LATENCY * GST_MSECOND;
-        }
+        if (max_latency != GST_CLOCK_TIME_NONE)
+          max_latency += TS_LATENCY * GST_MSECOND;
 
         gst_query_set_latency (query, is_live, min_latency, max_latency);
       }
