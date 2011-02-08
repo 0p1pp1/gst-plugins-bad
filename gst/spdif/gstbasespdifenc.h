@@ -28,7 +28,7 @@
 #endif
 
 #include <gst/gst.h>
-#include <gst/base/gstbasetransform.h>
+#include <gst/base/gstadapter.h>
 
 G_BEGIN_DECLS
 
@@ -112,7 +112,7 @@ enum IEC61937DataType {
  * The opaque #GstBaseSpdifEnc data structure.
  */
 struct _GstBaseSpdifEnc {
-  GstBaseTransform  transform;
+  GstElement  Element;
 
   guint    pkt_offset;      ///< data burst repetition period in bytes
   gint     framerate;
@@ -122,23 +122,25 @@ struct _GstBaseSpdifEnc {
   gboolean extra_bswap;     ///< extra bswap for payload (for LE DTS => standard BE DTS)
   guint8   header[BURST_HEADER_SIZE];
 
+  GstPad   *sinkpad;
+  GstPad   *srcpad;
+
   /*< private >*/
-  gboolean last_parse_ret;
+  GstAdapter *adapter;
   gpointer _gst_reserved[GST_PADDING];
 };
 
 /**
  * GstBaseSpdifEncClass:
  *
- * @parse_frame_info:  Called from GstBaseTransform::before_transform(),
+ * @parse_frame_info:  Called from the beginning of chain() ,
  *                     stores the return status & IEC61937 parameters like
  *                     pkt_offset, header.
  *
  * subclass must override  @parse_frame_info.
- * It may override GstBaseTransform::transform_caps() if necessary.
  */
 struct _GstBaseSpdifEncClass {
-  GstBaseTransformClass parent_class;
+  GstElementClass parent_class;
 
   /*< public >*/
   /* virtual methods for subclasses */

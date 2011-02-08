@@ -31,37 +31,59 @@
 GST_DEBUG_CATEGORY_STATIC (basespdif_enc_dbg);
 #define GST_CAT_DEFAULT basespdif_enc_dbg
 
-#define do_init G_STMT_START { \
-    GST_DEBUG_CATEGORY_INIT (basespdif_enc_dbg, "basespdif_enc", 0, \
-                             "basespdif_enc"); \
-} G_STMT_END
+static GstElementClass *parent_class = NULL;
 
-G_DEFINE_ABSTRACT_TYPE_WITH_CODE (GstBaseSpdifEnc, gst_base_spdif_enc,
-    GST_TYPE_BASE_TRANSFORM, do_init);
+static void gst_base_spdif_enc_class_init (GstBaseSpdifEncClass * klass);
+static void gst_base_spdif_enc_init (GstBaseSpdifEnc * enc,
+    GstBaseSpdifEncClass * klass);
+
+GType
+gst_base_spdif_enc_get_type (void)
+{
+  static volatile gsize base_spdif_enc_type = 0;
+
+  if (g_once_init_enter (&base_spdif_enc_type)) {
+    GType _type;
+    static const GTypeInfo base_spdif_enc_info = {
+      sizeof (GstBaseSpdifEncClass),
+      NULL,
+      NULL,
+      (GClassInitFunc) gst_base_spdif_enc_class_init,
+      NULL,
+      NULL,
+      sizeof (GstBaseSpdifEnc),
+      0,
+      (GInstanceInitFunc) gst_base_spdif_enc_init,
+    };
+
+    _type = g_type_register_static (GST_TYPE_ELEMENT,
+        "GstBaseSpdif", &base_spdif_enc_info, G_TYPE_FLAG_ABSTRACT);
+    GST_DEBUG_CATEGORY_INIT (basespdif_enc_dbg, "basespdif_enc", 0,
+        "basespdif_enc");
+    g_once_init_leave (&base_spdif_enc_type, _type);
+  }
+  return base_spdif_enc_type;
+}
 
 
-static GstCaps *gst_base_spdif_enc_transform_caps (GstBaseTransform * trans,
-    GstPadDirection direction, GstCaps * caps);
-static gboolean gst_base_spdif_enc_transform_size (GstBaseTransform * trans,
-    GstPadDirection direction, GstCaps * caps, guint size,
-    GstCaps * othercaps, guint * othersize);
-static void gst_base_spdif_enc_before_transform (GstBaseTransform * trans,
+#define AC3_CHANNELS 2
+#define AC3_BITS 16
+#define IEC958_FRAMESIZE 6144
+#define ALSASPDIFSINK_BYTES_PER_FRAME ((AC3_BITS / 8) * AC3_CHANNELS)
+
+static GstStateChangeReturn gst_base_spdif_enc_change_state (GstElement *
+    element, GstStateChange transition);
+static gboolean gst_base_spdif_enc_sink_event (GstPad * pad, GstEvent * event);
+static GstFlowReturn gst_base_spdif_enc_chain (GstPad * pad,
     GstBuffer * buffer);
-static GstFlowReturn gst_base_spdif_enc_transform (GstBaseTransform * trans,
-    GstBuffer * inbuf, GstBuffer * outbuf);
+static GstFlowReturn gst_base_spdif_enc_drain (GstBaseSpdifEnc * enc);
+static gboolean gst_base_spdif_enc_setcaps (GstPad * pad, GstCaps * caps);
 
 static gboolean gst_base_spdif_enc_frame_info (GstBaseSpdifEnc * enc,
     GstBuffer * buffer);
 
-static gboolean
-gst_base_spdif_enc_accept_caps (GstBaseTransform * trans,
-    GstPadDirection dir, GstCaps * caps)
-{
-  return TRUE;
-}
-
 static GstStaticPadTemplate gst_base_spdif_enc_src_template =
-GST_STATIC_PAD_TEMPLATE (GST_BASE_TRANSFORM_SRC_NAME,
+GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS ("audio/x-iec958")
@@ -70,19 +92,12 @@ GST_STATIC_PAD_TEMPLATE (GST_BASE_TRANSFORM_SRC_NAME,
 static void
 gst_base_spdif_enc_class_init (GstBaseSpdifEncClass * klass)
 {
-  GstBaseTransformClass *basetrans_class = (GstBaseTransformClass *) klass;
+  GstElementClass *element_class = (GstElementClass *) klass;
 
+  parent_class = g_type_class_peek_parent (G_OBJECT_CLASS (klass));
 
-  /* overrides for GstBaseTransform */
-  basetrans_class->transform_caps =
-      GST_DEBUG_FUNCPTR (gst_base_spdif_enc_transform_caps);
-  basetrans_class->transform_size =
-      GST_DEBUG_FUNCPTR (gst_base_spdif_enc_transform_size);
-  basetrans_class->transform = GST_DEBUG_FUNCPTR (gst_base_spdif_enc_transform);
-  basetrans_class->before_transform =
-      GST_DEBUG_FUNCPTR (gst_base_spdif_enc_before_transform);
-  basetrans_class->accept_caps =
-      GST_DEBUG_FUNCPTR (gst_base_spdif_enc_accept_caps);
+  element_class->change_state =
+      GST_DEBUG_FUNCPTR (gst_base_spdif_enc_change_state);
 
   /* Default handlers */
   klass->parse_frame_info = GST_DEBUG_FUNCPTR (gst_base_spdif_enc_frame_info);
@@ -90,55 +105,96 @@ gst_base_spdif_enc_class_init (GstBaseSpdifEncClass * klass)
 }
 
 static void
-gst_base_spdif_enc_init (GstBaseSpdifEnc * self)
+gst_base_spdif_enc_init (GstBaseSpdifEnc * self, GstBaseSpdifEncClass * klass)
 {
+  GstElementClass *element_klass = GST_ELEMENT_CLASS (klass);
+  GstPadTemplate *template;
+
+  self->adapter = gst_adapter_new ();
+
+  template = gst_element_class_get_pad_template (element_klass, "sink");
+  g_return_if_fail (template != NULL);
+  self->sinkpad = gst_pad_new_from_template (template, "sink");
+  g_return_if_fail (GST_IS_PAD (self->sinkpad));
+  gst_pad_set_chain_function (self->sinkpad,
+      GST_DEBUG_FUNCPTR (gst_base_spdif_enc_chain));
+  gst_pad_set_event_function (self->sinkpad,
+      GST_DEBUG_FUNCPTR (gst_base_spdif_enc_sink_event));
+  gst_pad_set_setcaps_function (self->sinkpad,
+      GST_DEBUG_FUNCPTR (gst_base_spdif_enc_setcaps));
+  gst_element_add_pad (GST_ELEMENT (self), self->sinkpad);
+
+
+  template = gst_element_class_get_pad_template (element_klass, "src");
+  g_return_if_fail (template != NULL);
+  self->srcpad = gst_pad_new_from_template (template, "src");
+  g_return_if_fail (GST_IS_PAD (self->srcpad));
+  gst_pad_set_setcaps_function (self->sinkpad,
+      GST_DEBUG_FUNCPTR (gst_base_spdif_enc_setcaps));
+  gst_element_add_pad (GST_ELEMENT (self), self->srcpad);
+  GST_DEBUG_OBJECT (self, "InitFunc finished.");
+
   GST_WRITE_UINT16_BE (&self->header[0], SYNCWORD1);
   GST_WRITE_UINT16_BE (&self->header[2], SYNCWORD2);
 }
 
-static GstCaps *
-gst_base_spdif_enc_transform_caps (GstBaseTransform * trans,
-    GstPadDirection direction, GstCaps * caps)
+
+static GstStateChangeReturn
+gst_base_spdif_enc_change_state (GstElement * element,
+    GstStateChange transition)
 {
-  GstElementClass *klass;
-  GstPadTemplate *template;
+  GstBaseSpdifEnc *enc = GST_BASE_SPDIF_ENC (element);
+  GstStateChangeReturn result;
 
-  if (caps == NULL)
-    return NULL;
-
-  if (direction == GST_PAD_SINK)
-    return gst_static_pad_template_get_caps (&gst_base_spdif_enc_src_template);
-
-  klass = GST_ELEMENT_CLASS (GST_BASE_TRANSFORM_GET_CLASS (trans));
-  template = gst_element_class_get_pad_template (klass,
-      GST_BASE_TRANSFORM_SINK_NAME);
-  return gst_pad_template_get_caps (template);
-}
-
-/**
- * usually unsed. originally used from prepare_output_buffer(), 
- * but overrides here for safety.
- * subclass can override this func, for calculating src_caps size
- */
-static gboolean
-gst_base_spdif_enc_transform_size (GstBaseTransform * trans,
-    GstPadDirection direction, GstCaps * caps,
-    guint size, GstCaps * othercaps, guint * othersize)
-{
-  GstBaseSpdifEnc *enc = GST_BASE_SPDIF_ENC_CAST (trans);
-
-  *othersize = 0;
-
-  if (direction == GST_PAD_SRC) {
-    /* src_pad & src_caps -> sink_caps size */
-    *othersize = size;
-  } else {
-    /* sink_pad & sink_caps -> src_caps size */
-    if (enc->pkt_offset)
-      *othersize = enc->pkt_offset;
+  switch (transition) {
+    case GST_STATE_CHANGE_READY_TO_PAUSED:
+      gst_pad_set_active (enc->srcpad, TRUE);
+      gst_pad_set_active (enc->sinkpad, TRUE);
+      gst_adapter_clear (enc->adapter);
+      break;
+    default:
+      break;
   }
 
-  return (*othersize != 0);
+  result = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
+
+  switch (transition) {
+    case GST_STATE_CHANGE_PAUSED_TO_READY:
+      gst_pad_set_active (enc->sinkpad, FALSE);
+      gst_pad_set_active (enc->srcpad, FALSE);
+      break;
+    default:
+      break;
+  }
+
+  return result;
+}
+
+static gboolean
+gst_base_spdif_enc_sink_event (GstPad * pad, GstEvent * event)
+{
+  GstBaseSpdifEnc *enc = GST_BASE_SPDIF_ENC (gst_pad_get_parent (pad));
+  gboolean res = FALSE;
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_FLUSH_STOP:
+      GST_PAD_STREAM_LOCK (pad);
+      gst_base_spdif_enc_drain (enc);
+      GST_PAD_STREAM_UNLOCK (pad);
+      break;
+    default:
+      res = gst_pad_event_default (pad, event);
+      break;
+  }
+  gst_object_unref (enc);
+
+  return res;
+}
+
+static gboolean
+gst_base_spdif_enc_setcaps (GstPad * pad, GstCaps * caps)
+{
+  return TRUE;
 }
 
 /* dummy func. subclass should override this */
@@ -149,84 +205,223 @@ gst_base_spdif_enc_frame_info (GstBaseSpdifEnc * encoder, GstBuffer * buffer)
   return FALSE;
 }
 
-static void
-gst_base_spdif_enc_before_transform (GstBaseTransform * trans,
-    GstBuffer * buffer)
+static GstFlowReturn
+gst_base_spdif_enc_output_frame (GstBaseSpdifEnc * enc)
 {
-  GstBaseSpdifEnc *enc = GST_BASE_SPDIF_ENC_CAST (trans);
-  GstBaseSpdifEncClass *klass = GST_BASE_SPDIF_ENC_GET_CLASS (enc);
+  GstFlowReturn ret;
+  GstBuffer *outbuf;
+  GstClockTime timestamp;
+  GstCaps *outcaps;
 
-  enc->use_preamble = TRUE;     // set the default
-  enc->extra_bswap = FALSE;
-  if (klass->parse_frame_info)
-    enc->last_parse_ret = klass->parse_frame_info (enc, buffer);
+  GST_LOG_OBJECT (enc, "outputting an IEC958 frame.");
+  g_return_val_if_fail (gst_adapter_available (enc->adapter) >=
+      IEC958_FRAMESIZE, GST_FLOW_ERROR);
+
+  timestamp = gst_adapter_prev_timestamp (enc->adapter, NULL);
+  outbuf = gst_adapter_take_buffer (enc->adapter, IEC958_FRAMESIZE);
+  if (outbuf == NULL) {
+    GST_WARNING_OBJECT (enc, "failed to alloc buffer.");
+    return GST_FLOW_ERROR;
+  }
+  GST_BUFFER_TIMESTAMP (outbuf) = timestamp;
+  GST_BUFFER_DURATION (outbuf) =
+      gst_util_uint64_scale_int (IEC958_FRAMESIZE, GST_SECOND,
+      ALSASPDIFSINK_BYTES_PER_FRAME * enc->framerate);
+
+  outcaps = gst_pad_get_allowed_caps (enc->srcpad);
+  if (!GST_IS_CAPS (outcaps)) {
+    GST_LOG_OBJECT (enc, "srcpad not negotiated.");
+    gst_buffer_unref (outbuf);
+    return GST_FLOW_NOT_NEGOTIATED;
+  }
+  outcaps = gst_caps_make_writable (outcaps);
+  gst_caps_set_simple (outcaps, "rate", G_TYPE_INT, enc->framerate, NULL);
+  gst_buffer_set_caps (outbuf, outcaps);
+  gst_caps_unref (outcaps);
+
+  ret = gst_pad_push (enc->srcpad, outbuf);
+  if (ret != GST_FLOW_OK)
+    GST_DEBUG_OBJECT (enc, "failed to push out buffer, ret:%d.", ret);
+
+  return ret;
 }
 
 static GstFlowReturn
-gst_base_spdif_enc_transform (GstBaseTransform * trans,
-    GstBuffer * inbuf, GstBuffer * outbuf)
+gst_base_spdif_enc_drain (GstBaseSpdifEnc * enc)
 {
-  GstBaseSpdifEnc *enc = GST_BASE_SPDIF_ENC_CAST (trans);
-  guint data_len, padding_len, cp_len;
-  guint8 *p;
-  GstCaps *out_caps;
-  GValue rate = { 0 };
+  GstFlowReturn ret;
+  GstBuffer *tbuf;
+  guint len;
 
-  if (!enc->last_parse_ret || enc->pkt_offset == 0) {
-    GST_DEBUG_OBJECT (enc, "failed to parse frame info for %p", inbuf);
-    return GST_FLOW_NOT_NEGOTIATED;
+  len = gst_adapter_available (enc->adapter);
+  while (len >= IEC958_FRAMESIZE) {
+    ret = gst_base_spdif_enc_output_frame (enc);
+    if (ret != GST_FLOW_OK)
+      return ret;
+    len -= IEC958_FRAMESIZE;
   }
 
-  data_len = GST_ROUND_UP_2 (GST_BUFFER_SIZE (inbuf));
-  if (enc->use_preamble)
-    data_len += BURST_HEADER_SIZE;
+  if (len == 0)
+    return GST_FLOW_OK;
 
-  if (GST_BUFFER_SIZE (outbuf) < enc->pkt_offset || data_len > enc->pkt_offset) {
-    GST_DEBUG_OBJECT (enc, "too much in-data:%d for repetition_bytes:%d",
-        data_len, enc->pkt_offset);
-    return GST_FLOW_NOT_NEGOTIATED;
+  // append a 0-filling buffer,
+  //as alsaspdifsink accepts only the buffer of size:IEC958_FRAMESIZE.
+  tbuf = gst_buffer_new_and_alloc (IEC958_FRAMESIZE - len);
+  if (!tbuf) {
+    GST_WARNING_OBJECT (enc, "failed to alloc buffer.");
+    return GST_FLOW_ERROR;
+  }
+  memset (GST_BUFFER_DATA (tbuf), 0, GST_BUFFER_SIZE (tbuf));
+  GST_LOG_OBJECT (enc, "0-filled %d bytes.", IEC958_FRAMESIZE - len);
+  gst_adapter_push (enc->adapter, tbuf);
+  ret = gst_base_spdif_enc_output_frame (enc);
+
+  return ret;
+}
+
+static GstFlowReturn
+gst_base_spdif_enc_chain (GstPad * pad, GstBuffer * buffer)
+{
+  GstElement *elem;
+  GstBaseSpdifEnc *enc;
+  GstBaseSpdifEncClass *klass;
+  GstBuffer *tbuf;
+  GstFlowReturn ret;
+  guint len;
+
+  elem = gst_pad_get_parent_element (pad);
+  enc = GST_BASE_SPDIF_ENC (elem);
+  klass = GST_BASE_SPDIF_ENC_GET_CLASS (enc);
+
+  ret = GST_FLOW_OK;
+  enc->use_preamble = TRUE;     // set the default
+  enc->extra_bswap = FALSE;
+  enc->framerate = 1;
+
+  GST_LOG_OBJECT (enc, "pushing %d bytes", GST_BUFFER_SIZE (buffer));
+  /* get frame-header info */
+  if (!klass->parse_frame_info || !klass->parse_frame_info (enc, buffer)) {
+    GST_DEBUG_OBJECT (enc, "failed to parse the incoming buffer.");
+    gst_buffer_unref (buffer);
+    ret = GST_FLOW_NOT_NEGOTIATED;
+    goto done;
   }
 
-  out_caps = gst_buffer_get_caps (outbuf);
-  if (out_caps == NULL) {
-    GST_DEBUG_OBJECT (enc, "failed to get the caps for %p", outbuf);
-    return GST_FLOW_NOT_NEGOTIATED;
-  }
-  g_value_init (&rate, G_TYPE_INT);
-  g_value_set_int (&rate, enc->framerate);
-  gst_caps_set_value (out_caps, "rate", &rate);
-  gst_caps_unref (out_caps);
-
-  p = GST_BUFFER_DATA (outbuf);
-  if (enc->use_preamble) {
-    memcpy (p, enc->header, BURST_HEADER_SIZE);
-    p += BURST_HEADER_SIZE;
+  /* handle discont. */
+  if (GST_BUFFER_FLAG_IS_SET (buffer, GST_BUFFER_FLAG_DISCONT)) {
+    GST_LOG_OBJECT (enc, "recevied a incoming buffer with discont flag.");
+    ret = gst_base_spdif_enc_drain (enc);
+    gst_adapter_clear (enc->adapter);   // just for safety.
+    if (ret != GST_FLOW_OK) {
+      gst_buffer_unref (buffer);
+      goto done;
+    }
   }
 
-  cp_len = GST_ROUND_DOWN_2 (GST_BUFFER_SIZE (inbuf));
-  if ((G_BYTE_ORDER == G_BIG_ENDIAN) ^ enc->extra_bswap)
-    memcpy (p, GST_BUFFER_DATA (inbuf), cp_len);
-  else {
-    gint i;
-    guint16 *src, *dst;
+  /* push the incoming buffer to enc->adapter,
+   * but taking into account the byte-swapping & 
+   *     the alignment of the last byte at word boundary.
+   */
+  len = GST_BUFFER_SIZE (buffer);
+  /* FIXME:  like in the original ffmpeg source, should it be
+   *  if (G_BYTE_ORDER == G_BIG_ENDIAN) ^ enc->extra_bswap)  ?
+   */
+  if (!enc->extra_bswap) {
+    // no byte-swapping needed
 
-    GST_LOG_OBJECT (enc, "swapped copy to outbuf");
+    // push the header fisrt.
+    if (enc->use_preamble) {
+      tbuf = gst_buffer_new_and_alloc (BURST_HEADER_SIZE);
+      if (tbuf == NULL)
+        goto failed_alloc;
+      memcpy (GST_BUFFER_DATA (tbuf), enc->header, BURST_HEADER_SIZE);
+      gst_buffer_copy_metadata (tbuf, buffer, GST_BUFFER_COPY_TIMESTAMPS);
+      GST_BUFFER_TIMESTAMP (buffer) = GST_CLOCK_TIME_NONE;
+      gst_adapter_push (enc->adapter, tbuf);
+    }
+
+    /* payload */
+    if (!(len & 0x1))
+      gst_adapter_push (enc->adapter, buffer);
+    else {
+      guint8 *p;
+
+      // last byte needs alignment.
+      tbuf = gst_buffer_create_sub (buffer, 0, GST_ROUND_DOWN_2 (len));
+      if (tbuf == NULL)
+        goto failed_alloc;
+      gst_adapter_push (enc->adapter, tbuf);
+
+      tbuf = gst_buffer_new_and_alloc (2);
+      if (tbuf == NULL)
+        goto failed_alloc;
+      p = GST_BUFFER_DATA (tbuf);
+      p[0] = 0;
+      p[1] = GST_BUFFER_DATA (buffer)[len - 1];
+      gst_adapter_push (enc->adapter, tbuf);
+      gst_buffer_unref (buffer);
+    }
+
+    // padding
+    if (enc->use_preamble)
+      len += BURST_HEADER_SIZE;
+    tbuf = gst_buffer_new_and_alloc (enc->pkt_offset - GST_ROUND_UP_2 (len));
+    if (tbuf == NULL)
+      goto failed_alloc;
+    memset (GST_BUFFER_DATA (tbuf), 0, GST_BUFFER_SIZE (tbuf));
+    gst_adapter_push (enc->adapter, tbuf);
+
+  } else {
+    guint l, i;
+    guint8 *p, *q;
+    guint16 *dst, *src;
+
+    // byte-swapping required. prepare the whole-size buffer.
+    tbuf = gst_buffer_new_and_alloc (enc->pkt_offset);
+    if (tbuf == NULL)
+      goto failed_alloc;
+
+    p = GST_BUFFER_DATA (tbuf);
+    // not byte-swap the header (?)
+    if (enc->use_preamble) {
+      memcpy (p, enc->header, BURST_HEADER_SIZE);
+      p += BURST_HEADER_SIZE;
+    }
+
+    /* swap paylod, excluding the last 1or2 bytes */
+    q = GST_BUFFER_DATA (buffer);
+    l = GST_ROUND_UP_2 (len);
     dst = (guint16 *) p;
-    src = (guint16 *) GST_BUFFER_DATA (inbuf);
-    for (i = 0; i < cp_len >> 1; i++, src++, dst++)
+    src = (guint16 *) q;
+    for (i = 0; i < (l >> 1); i++, src++, dst++)
       *dst = GUINT16_SWAP_LE_BE (*src);
-  }
-  p += cp_len;
-  if (cp_len != data_len) {     // insize is odd. pack to BE16
-    GST_WRITE_UINT16_BE (p, GST_BUFFER_DATA (inbuf)[cp_len]);
-    p += 2;
-  }
-  padding_len = enc->pkt_offset - data_len;
-  if (padding_len > 0)
-    memset (p, 0, padding_len);
-  /* meta data (incl. TIMESTAMP, DURATION) are copied from inbuf by default */
 
-  return GST_FLOW_OK;
+    // process the last 1 or 2 bytes
+    p = (guint8 *) dst;
+    q = (guint8 *) src;
+    if (len & 0x1) {
+      p[0] = 0;
+      p[1] = q[0];
+      p += 2;
+    }
+
+    memset (p, 0, enc->pkt_offset - (p - GST_BUFFER_DATA (tbuf)));
+    gst_adapter_push (enc->adapter, tbuf);
+    gst_buffer_unref (buffer);
+  }
+
+  // check the available amount of adapter, and push.
+  if (gst_adapter_available (enc->adapter) >= IEC958_FRAMESIZE)
+    ret = gst_base_spdif_enc_output_frame (enc);
+
+done:
+  gst_object_unref (GST_OBJECT_CAST (elem));
+  return ret;
+
+failed_alloc:
+  GST_INFO_OBJECT (enc, "failed to alloc buffer.");
+  gst_object_unref (GST_OBJECT_CAST (elem));
+  return GST_FLOW_ERROR;
 }
 
 /**
@@ -245,14 +440,18 @@ gst_base_spdif_enc_class_add_pad_templates (GstBaseSpdifEncClass * klass,
 {
   GstElementClass *element_class = GST_ELEMENT_CLASS (klass);
   GstPadTemplate *sink_pad_template;
+  GstPadTemplate *src_pad_template;
 
   g_return_if_fail (GST_IS_BASE_SPDIF_ENC_CLASS (klass));
   g_return_if_fail (GST_IS_CAPS (sink_caps));
 
-  sink_pad_template = gst_pad_template_new (GST_BASE_TRANSFORM_SINK_NAME,
-      GST_PAD_SINK, GST_PAD_ALWAYS, sink_caps);
+  sink_pad_template = gst_pad_template_new ("sink", GST_PAD_SINK,
+      GST_PAD_ALWAYS, sink_caps);
+  g_return_if_fail (sink_pad_template != NULL);
   gst_element_class_add_pad_template (element_class, sink_pad_template);
 
-  gst_element_class_add_pad_template (element_class,
-      gst_static_pad_template_get (&gst_base_spdif_enc_src_template));
+  src_pad_template =
+      gst_static_pad_template_get (&gst_base_spdif_enc_src_template);
+  g_return_if_fail (src_pad_template != NULL);
+  gst_element_class_add_pad_template (element_class, src_pad_template);
 }
