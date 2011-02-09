@@ -21,7 +21,7 @@
  */
 
 /** example esage: 
- *  gst-launch filesrc location=foo.aac ! aacparse ! aac2spdif ! alsaspdifsink
+ *  gst-launch filesrc location=foo.aac ! aacparse ! aac2spdif ! alsasink
  */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
