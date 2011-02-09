@@ -129,7 +129,7 @@ gst_base_spdif_enc_init (GstBaseSpdifEnc * self, GstBaseSpdifEncClass * klass)
   g_return_if_fail (template != NULL);
   self->srcpad = gst_pad_new_from_template (template, "src");
   g_return_if_fail (GST_IS_PAD (self->srcpad));
-  gst_pad_set_setcaps_function (self->sinkpad,
+  gst_pad_set_setcaps_function (self->srcpad,
       GST_DEBUG_FUNCPTR (gst_base_spdif_enc_setcaps));
   gst_element_add_pad (GST_ELEMENT (self), self->srcpad);
   GST_DEBUG_OBJECT (self, "InitFunc finished.");
@@ -151,6 +151,10 @@ gst_base_spdif_enc_change_state (GstElement * element,
       gst_pad_set_active (enc->srcpad, TRUE);
       gst_pad_set_active (enc->sinkpad, TRUE);
       gst_adapter_clear (enc->adapter);
+      enc->next_ts = 0;
+      enc->use_preamble = TRUE;
+      enc->extra_bswap = 0;
+      enc->framerate = 1;
       break;
     default:
       break;
@@ -210,34 +214,49 @@ gst_base_spdif_enc_output_frame (GstBaseSpdifEnc * enc)
 {
   GstFlowReturn ret;
   GstBuffer *outbuf;
-  GstClockTime timestamp;
+  const guint8 *data;
+  GstClockTime duration;
+  GstCaps *srccaps;
   GstCaps *outcaps;
 
-  GST_LOG_OBJECT (enc, "outputting an IEC958 frame.");
   g_return_val_if_fail (gst_adapter_available (enc->adapter) >=
       IEC958_FRAMESIZE, GST_FLOW_ERROR);
 
-  timestamp = gst_adapter_prev_timestamp (enc->adapter, NULL);
-  outbuf = gst_adapter_take_buffer (enc->adapter, IEC958_FRAMESIZE);
-  if (outbuf == NULL) {
-    GST_WARNING_OBJECT (enc, "failed to alloc buffer.");
+  data = gst_adapter_peek (enc->adapter, IEC958_FRAMESIZE);
+  srccaps = GST_PAD_CAPS (enc->srcpad);
+  if (!GST_IS_CAPS (srccaps)) {
+    srccaps =
+        gst_pad_template_get_caps (gst_pad_get_pad_template (enc->srcpad));
+    gst_pad_set_caps (enc->srcpad, srccaps);
+  }
+  if (gst_pad_alloc_buffer (enc->srcpad, GST_BUFFER_OFFSET_NONE,
+          IEC958_FRAMESIZE, srccaps, &outbuf) != GST_FLOW_OK) {
+    GST_WARNING_OBJECT (enc->srcpad, "failed to alloc buffer.");
+    gst_adapter_flush (enc->adapter, IEC958_FRAMESIZE);
     return GST_FLOW_ERROR;
   }
-  GST_BUFFER_TIMESTAMP (outbuf) = timestamp;
-  GST_BUFFER_DURATION (outbuf) =
-      gst_util_uint64_scale_int (IEC958_FRAMESIZE, GST_SECOND,
+  memcpy (GST_BUFFER_DATA (outbuf), data, IEC958_FRAMESIZE);
+  gst_adapter_flush (enc->adapter, IEC958_FRAMESIZE);
+  duration = gst_util_uint64_scale_int (IEC958_FRAMESIZE, GST_SECOND,
       ALSASPDIFSINK_BYTES_PER_FRAME * enc->framerate);
 
-  outcaps = gst_pad_get_allowed_caps (enc->srcpad);
-  if (!GST_IS_CAPS (outcaps)) {
-    GST_LOG_OBJECT (enc, "srcpad not negotiated.");
+  GST_BUFFER_DURATION (outbuf) = duration;
+  GST_BUFFER_TIMESTAMP (outbuf) = enc->next_ts;
+  GST_BUFFER_OFFSET (outbuf) = GST_BUFFER_OFFSET_NONE;
+  GST_DEBUG_OBJECT (enc, "outputting an IEC958 frame. time:%"
+      GST_TIME_FORMAT, GST_TIME_ARGS (enc->next_ts));
+  enc->next_ts += duration;
+
+  outcaps = GST_BUFFER_CAPS (outbuf);
+  if (!gst_caps_is_equal_fixed (outcaps, srccaps)) {
+    GST_DEBUG_OBJECT (enc, "srcpad not negotiated. srcpad caps:%"
+        GST_PTR_FORMAT, srccaps);
     gst_buffer_unref (outbuf);
     return GST_FLOW_NOT_NEGOTIATED;
   }
   outcaps = gst_caps_make_writable (outcaps);
   gst_caps_set_simple (outcaps, "rate", G_TYPE_INT, enc->framerate, NULL);
   gst_buffer_set_caps (outbuf, outcaps);
-  gst_caps_unref (outcaps);
 
   ret = gst_pad_push (enc->srcpad, outbuf);
   if (ret != GST_FLOW_OK)
@@ -293,20 +312,6 @@ gst_base_spdif_enc_chain (GstPad * pad, GstBuffer * buffer)
   enc = GST_BASE_SPDIF_ENC (elem);
   klass = GST_BASE_SPDIF_ENC_GET_CLASS (enc);
 
-  ret = GST_FLOW_OK;
-  enc->use_preamble = TRUE;     // set the default
-  enc->extra_bswap = FALSE;
-  enc->framerate = 1;
-
-  GST_LOG_OBJECT (enc, "pushing %d bytes", GST_BUFFER_SIZE (buffer));
-  /* get frame-header info */
-  if (!klass->parse_frame_info || !klass->parse_frame_info (enc, buffer)) {
-    GST_DEBUG_OBJECT (enc, "failed to parse the incoming buffer.");
-    gst_buffer_unref (buffer);
-    ret = GST_FLOW_NOT_NEGOTIATED;
-    goto done;
-  }
-
   /* handle discont. */
   if (GST_BUFFER_FLAG_IS_SET (buffer, GST_BUFFER_FLAG_DISCONT)) {
     GST_LOG_OBJECT (enc, "recevied a incoming buffer with discont flag.");
@@ -318,10 +323,27 @@ gst_base_spdif_enc_chain (GstPad * pad, GstBuffer * buffer)
     }
   }
 
+  ret = GST_FLOW_OK;
+  enc->use_preamble = TRUE;     // set the default
+  enc->extra_bswap = FALSE;
+  enc->framerate = 1;
+
+  GST_LOG_OBJECT (enc, "pushing %d bytes", GST_BUFFER_SIZE (buffer));
+  /* get frame-header info */
+  if (!klass->parse_frame_info || !klass->parse_frame_info (enc, buffer)) {
+    GST_INFO_OBJECT (enc, "failed to parse the incoming buffer.");
+    gst_buffer_unref (buffer);
+    ret = GST_FLOW_NOT_NEGOTIATED;
+    goto done;
+  }
+
   /* push the incoming buffer to enc->adapter,
    * but taking into account the byte-swapping & 
    *     the alignment of the last byte at word boundary.
    */
+  if (GST_BUFFER_TIMESTAMP_IS_VALID (buffer))
+    enc->next_ts = GST_BUFFER_TIMESTAMP (buffer);
+
   len = GST_BUFFER_SIZE (buffer);
   /* FIXME:  like in the original ffmpeg source, should it be
    *  if (G_BYTE_ORDER == G_BIG_ENDIAN) ^ enc->extra_bswap)  ?

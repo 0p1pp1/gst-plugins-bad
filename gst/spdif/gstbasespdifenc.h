@@ -127,6 +127,7 @@ struct _GstBaseSpdifEnc {
 
   /*< private >*/
   GstAdapter *adapter;
+  GstClockTime next_ts;
   gpointer _gst_reserved[GST_PADDING];
 };
 
