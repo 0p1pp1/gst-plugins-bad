@@ -27,7 +27,7 @@
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
-  if (!gst_element_register (plugin, "aac2spdif", GST_RANK_PRIMARY,
+  if (!gst_element_register (plugin, "aac2spdif", GST_RANK_SECONDARY + 1,
           GST_TYPE_AAC_SPDIF_ENC)) {
     return FALSE;
   }

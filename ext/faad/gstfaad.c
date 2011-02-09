@@ -993,7 +993,7 @@ gst_faad_close_decoder (GstFaad * faad)
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
-  return gst_element_register (plugin, "faad", GST_RANK_MARGINAL,
+  return gst_element_register (plugin, "faad", GST_RANK_SECONDARY,
       GST_TYPE_FAAD);
 }
 
