@@ -345,10 +345,7 @@ gst_base_spdif_enc_chain (GstPad * pad, GstBuffer * buffer)
     enc->next_ts = GST_BUFFER_TIMESTAMP (buffer);
 
   len = GST_BUFFER_SIZE (buffer);
-  /* FIXME:  like in the original ffmpeg source, should it be
-   *  if (G_BYTE_ORDER == G_BIG_ENDIAN) ^ enc->extra_bswap)  ?
-   */
-  if (!enc->extra_bswap) {
+  if ((G_BYTE_ORDER == G_BIG_ENDIAN) ^ enc->extra_bswap) {
     // no byte-swapping needed
 
     // push the header fisrt.
