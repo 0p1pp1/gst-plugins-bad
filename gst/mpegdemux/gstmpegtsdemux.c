@@ -2148,7 +2148,7 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
 
         /* create & attach the pad */
         if (!gst_mpegts_demux_fill_stream (ES_stream, stream_type)) {
-          GST_WARNING_OBJECT (demux,
+          GST_INFO_OBJECT (demux,
               "New stream 0x%04x of type 0x%02x found, "
               "but failed to create the pad. dropping this stream.",
               ES_stream->PID, stream_type);
