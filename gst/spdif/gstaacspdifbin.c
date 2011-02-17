@@ -1,8 +1,7 @@
 /* GStreamer 
  * Copyright (C) 2011 0p1pp1
  *
- * gstaacspdifbin.c: IEC61937 encapsulators of AAC ADTS,
- *                     used for the S/PDIF interface.
+ * gstaacspdifbin.c: S/PDIF (IEC958) bin for AAC ADTS.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -43,15 +42,12 @@ GST_BOILERPLATE_FULL (GstAacSpdifBin, gst_aac_spdif_bin, GstBin, GST_TYPE_BIN,
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("audio/mpeg, "
-        "framed = (boolean) false, " "mpegversion = (int) { 2, 4 };"));
+    GST_STATIC_CAPS ("audio/mpeg, mpegversion = (int) { 2, 4 };"));
 
 static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("audio/x-iec958")
-    );
-
+    GST_STATIC_CAPS ("audio/x-iec958;"));
 
 static void
 gst_aac_spdif_bin_base_init (gpointer g_class)
@@ -64,9 +60,9 @@ gst_aac_spdif_bin_base_init (gpointer g_class)
   gst_element_class_add_pad_template (element_class,
       gst_static_pad_template_get (&src_template));
 
-  gst_element_class_set_details_simple (element_class, "AAC S/PDIF bin",
-      "Decoder/Audio/Bin",
-      "Bin aacparse and aac2spdif to fit in auto-pluggers", "0p1pp1");
+  gst_element_class_set_details_simple (element_class,
+      "AAC S/PDIF Payloader bin", "Decoder/Audio/Bin",
+      "Bin of aacparse, aac2spdif", "0p1pp1");
 }
 
 static void
@@ -78,22 +74,31 @@ gst_aac_spdif_bin_class_init (GstAacSpdifBinClass * klass)
 static void
 gst_aac_spdif_bin_init (GstAacSpdifBin * self, GstAacSpdifBinClass * klass)
 {
+  GstElementClass *eklass = GST_ELEMENT_CLASS (klass);
   GstPad *pad;
 
   self->aacparse = gst_element_factory_make ("aacparse", NULL);
   self->aac2spdif = gst_element_factory_make ("aac2spdif", NULL);
-  g_return_if_fail (self->aacparse && self->aac2spdif);
+  if (!self->aacparse || !self->aac2spdif)
+    GST_ELEMENT_ERROR (GST_ELEMENT (self), LIBRARY, INIT,
+        ("failed to create the internal components"), (NULL));
 
   gst_bin_add_many (GST_BIN (self), self->aacparse, self->aac2spdif, NULL);
-  gst_element_link_many (self->aacparse, self->aac2spdif, NULL);
+  gst_element_link (self->aacparse, self->aac2spdif);
 
   pad = gst_element_get_static_pad (self->aacparse, "sink");
-  g_return_if_fail (pad);
-  gst_element_add_pad (GST_ELEMENT (self), gst_ghost_pad_new ("sink", pad));
+  if (!pad)
+    GST_ELEMENT_ERROR (GST_ELEMENT (self), LIBRARY, INIT, (NULL),
+        ("failed to ghost the sink pad."));
+  gst_element_add_pad (GST_ELEMENT (self), gst_ghost_pad_new_from_template
+      ("sink", pad, gst_element_class_get_pad_template (eklass, "sink")));
   gst_object_unref (GST_OBJECT (pad));
 
   pad = gst_element_get_static_pad (self->aac2spdif, "src");
-  g_return_if_fail (pad);
-  gst_element_add_pad (GST_ELEMENT (self), gst_ghost_pad_new ("src", pad));
+  if (!pad)
+    GST_ELEMENT_ERROR (GST_ELEMENT (self), LIBRARY, INIT, (NULL),
+        ("failed to ghost the src pad."));
+  gst_element_add_pad (GST_ELEMENT (self), gst_ghost_pad_new_from_template
+      ("src", pad, gst_element_class_get_pad_template (eklass, "src")));
   gst_object_unref (GST_OBJECT (pad));
 }

@@ -1,8 +1,7 @@
 /* GStreamer 
  * Copyright (C) 2011 0p1pp1
  *
- * gstaacspdifbin.h: IEC61937 encapsulators of AAC ADTS,
- *                     used for the S/PDIF interface.
+ * gstaacspdifbin.h: S/PDIF (IEC958) bin for AAC ADTS.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
