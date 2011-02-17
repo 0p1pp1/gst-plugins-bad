@@ -24,6 +24,7 @@
 #include <gst/gst.h>
 #include "gstaacspdifenc.h"
 #include "gstaacspdifbin.h"
+#include "gstaacspdifsink.h"
 
 static gboolean
 plugin_init (GstPlugin * plugin)
@@ -34,6 +35,10 @@ plugin_init (GstPlugin * plugin)
   }
   if (!gst_element_register (plugin, "aacspdifbin", GST_RANK_MARGINAL,
           GST_TYPE_AAC_SPDIF_BIN)) {
+    return FALSE;
+  }
+  if (!gst_element_register (plugin, "aacspdifsink", GST_RANK_NONE,
+          GST_TYPE_AAC_SPDIF_SINK)) {
     return FALSE;
   }
 
