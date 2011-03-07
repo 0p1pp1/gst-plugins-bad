@@ -452,21 +452,34 @@ gst_mpegts_demux_reset (GstMpegTSDemux * demux)
   demux->last_buf_ts = GST_CLOCK_TIME_NONE;
 }
 
-#if 0
+static void gst_mpegts_demux_cleanup_stream (GstMpegTSDemux * demux,
+    guint16 PID);
+
 static void
 gst_mpegts_demux_remove_pad (gpointer item, gpointer data)
 {
   GstPad *pad = item;
+  GstPad *peer;
   GstMpegTSDemux *demux = data;
   GstMpegTSStream *stream = gst_pad_get_element_private (pad);
 
   if (stream != NULL) {
-    gst_pad_push_event (pad, gst_event_new_eos ());
+    GST_DEBUG_OBJECT (demux, "removing pad for pid:%#04hx", stream->PID);
+#if 0
+    gst_mpegts_stream_pes_buffer_flush (stream, TRUE);
+    stream->pes_buffer_in_sync = FALSE;
+
+    //gst_pad_push_event (pad, gst_event_new_eos ());
     gst_element_remove_pad (GST_ELEMENT_CAST (demux), pad);
     stream->pad = NULL;
 
-    if (stream->PID_type == PID_TYPE_ELEMENTARY)
+    if (stream->PID_type == PID_TYPE_ELEMENTARY) {
       gst_pes_filter_drain (&stream->filter);
+      stream->PID_type = PID_TYPE_UNKNOWN;
+      stream->PMT_pid = 0;
+    }
+#endif
+    gst_mpegts_demux_cleanup_stream (demux, stream->PID);
   }
 
   demux->in_gap = GST_CLOCK_TIME_NONE;
@@ -474,6 +487,8 @@ gst_mpegts_demux_remove_pad (gpointer item, gpointer data)
   demux->last_buf_ts = GST_CLOCK_TIME_NONE;
   gst_object_unref (item);
 }
+
+static void gst_mpegts_demux_flush (GstMpegTSDemux * demux, gboolean discard);
 
 static void
 gst_mpegts_demux_no_more_pads (GstElement * demux)
@@ -490,20 +505,17 @@ gst_mpegts_demux_remove_pads (GstMpegTSDemux * demux)
   GstIterator *it;
   GstIteratorResult ret;
 
-  if (demux->need_no_more_pads) {
-    gst_element_no_more_pads ((GstElement *) demux);
-    demux->need_no_more_pads = FALSE;
-  }
+  GST_DEBUG_OBJECT (demux, "removing pads\n");
 
+  gst_mpegts_demux_flush (demux, TRUE);
   it = gst_element_iterate_src_pads ((GstElement *) demux);
   do {
+    gst_iterator_resync (it);
     ret = gst_iterator_foreach (it, &gst_mpegts_demux_remove_pad,
         (gpointer *) demux);
   } while (ret == GST_ITERATOR_RESYNC);
   gst_iterator_free (it);
 }
-#endif
-
 
 static const guint32 crc_tab[256] = {
   0x00000000, 0x04c11db7, 0x09823b6e, 0x0d4326d9, 0x130476dc, 0x17c56b6b,
@@ -1040,6 +1052,7 @@ gst_mpegts_demux_fill_stream (GstMpegTSStream * stream, guint8 stream_type)
   stream->segment_thresh = gst_mpegts_stream_is_video (stream) ?
       VIDEO_SEGMENT_THRESHOLD : SEGMENT_THRESHOLD;
   stream->last_segment_start = GST_CLOCK_TIME_NONE;
+  stream->need_segment = TRUE;
   GST_DEBUG ("creating new pad %s", name);
   stream->pad = gst_pad_new_from_template (template, name);
   gst_pad_use_fixed_caps (stream->pad);
@@ -1893,8 +1906,6 @@ gst_mpegts_activate_pmt (GstMpegTSDemux * demux, GstMpegTSStream * stream)
 {
   GST_DEBUG_OBJECT (demux, "activating PMT 0x%08x", stream->PID);
 
-  /* gst_mpegts_demux_remove_pads (demux); */
-
   demux->current_PMT = stream->PID;
 
   /* PMT has been updated, signal the change */
@@ -1902,7 +1913,7 @@ gst_mpegts_activate_pmt (GstMpegTSDemux * demux, GstMpegTSStream * stream)
     g_object_notify ((GObject *) (demux), "pmt-info");
 
   /* indicates that we have closed our pad group */
-  gst_element_no_more_pads (GST_ELEMENT_CAST (demux));
+  //gst_element_no_more_pads (GST_ELEMENT_CAST (demux));
 }
 
 /*
@@ -1988,6 +1999,9 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
 
   if (version_number == PMT->version_number)
     goto same_version;
+
+  gst_mpegts_demux_remove_pads (demux);
+  gst_element_no_more_pads ((GstElement *) demux);
 
   PMT->version_number = version_number;
   PMT->current_next_indicator = current_next_indicator;
@@ -2221,7 +2235,7 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
       gst_mpegts_activate_pmt (demux, stream);
       GST_INFO_OBJECT (demux, "No program number set, so using first parsed PMT"
           "'s program number: %d", program_number);
-      //demux->program_number = program_number;
+      demux->program_number = program_number;
     }
   } else if (demux->program_number == PMT->program_number)
     gst_mpegts_activate_pmt (demux, stream);
