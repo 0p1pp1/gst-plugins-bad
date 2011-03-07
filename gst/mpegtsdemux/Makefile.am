@@ -1,6 +1,7 @@
 plugin_LTLIBRARIES = libgstmpegtsdemux.la
 
 libgstmpegtsdemux_la_SOURCES = \
+	arib_b24_str.c \
 	gsttsdemux.c \
 	gstmpegdesc.c \
 	mpegtsbase.c	\
