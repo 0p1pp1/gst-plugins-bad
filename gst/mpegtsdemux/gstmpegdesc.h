@@ -189,7 +189,7 @@
 
 /* CA_descriptor */
 #define DESC_CA_system_ID(desc)					(GST_READ_UINT16_BE ((desc)+2))
-#define DESC_CA_PID(desc)					(GST_READ_UINT16_BE ((desc)+2) & 0x1fff)
+#define DESC_CA_PID(desc)					(GST_READ_UINT16_BE ((desc)+4) & 0x1fff)
 
 /* ISO_639_language_descriptor */
 #define DESC_ISO_639_LANGUAGE_codes_n(desc)			((desc[1]) >> 2)
