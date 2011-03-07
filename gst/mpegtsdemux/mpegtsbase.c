@@ -1273,20 +1273,31 @@ mpegts_base_chain (GstPad * pad, GstBuffer * buf)
     /* base PSI data */
     if (packet.payload != NULL && mpegts_base_is_psi (base, &packet)) {
       MpegTSPacketizerSection section;
-      based = mpegts_packetizer_push_section (packetizer, &packet, &section);
-      if (G_UNLIKELY (!based))
-        /* bad section data */
-        goto next;
-
-      if (G_LIKELY (section.complete)) {
-        /* section complete */
+      based = mpegts_packetizer_push_section0 (packetizer, &packet, &section);
+      if (based && section.complete) {
         based = mpegts_base_handle_psi (base, &section);
         gst_buffer_unref (section.buffer);
-
-        if (G_UNLIKELY (!based))
-          /* bad PSI table */
-          goto next;
       }
+      if (G_UNLIKELY (!based))
+        goto next;
+
+      do {
+        based = mpegts_packetizer_push_section (packetizer, &packet, &section);
+        if (G_UNLIKELY (!based))
+          /* bad section data */
+          goto next;
+
+        if (G_LIKELY (section.complete)) {
+          /* section complete */
+          based = mpegts_base_handle_psi (base, &section);
+          gst_buffer_unref (section.buffer);
+
+          if (G_UNLIKELY (!based))
+            /* bad PSI table */
+            goto next;
+        }
+      } while (packet.data < packet.data_end);
+
       /* we need to push section packet downstream */
       res = mpegts_base_push (base, &packet, &section);
 

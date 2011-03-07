@@ -62,6 +62,8 @@ static GQuark QUARK_SEGMENT_LAST_SECTION_NUMBER;
 static GQuark QUARK_LAST_TABLE_ID;
 static GQuark QUARK_EVENTS;
 
+static GQuark QUARK_SECTION_NUMBER;
+
 static void _init_local (void);
 G_DEFINE_TYPE_EXTENDED (MpegTSPacketizer2, mpegts_packetizer, G_TYPE_OBJECT, 0,
     _init_local ());
@@ -88,14 +90,15 @@ mpegts_packetizer_stream_subtable_compare (gconstpointer a, gconstpointer b)
   bsub = (MpegTSPacketizerStreamSubtable *) b;
 
   if (asub->table_id == bsub->table_id &&
-      asub->subtable_extension == bsub->subtable_extension)
+      asub->subtable_extension == bsub->subtable_extension &&
+      asub->section_number == bsub->section_number)
     return 0;
   return -1;
 }
 
 static MpegTSPacketizerStreamSubtable *
 mpegts_packetizer_stream_subtable_new (guint8 table_id,
-    guint16 subtable_extension)
+    guint16 subtable_extension, guint8 section_number)
 {
   MpegTSPacketizerStreamSubtable *subtable;
 
@@ -103,6 +106,7 @@ mpegts_packetizer_stream_subtable_new (guint8 table_id,
   subtable->version_number = VERSION_NUMBER_UNSET;
   subtable->table_id = table_id;
   subtable->subtable_extension = subtable_extension;
+  subtable->section_number = section_number;
   subtable->crc = 0;
   return subtable;
 }
@@ -321,13 +325,18 @@ mpegts_packetizer_parse_section_header (MpegTSPacketizer2 * packetizer,
 
   section->table_id = *data++;
   /* if table_id is 0 (pat) then ignore the subtable extension */
-  if ((data[0] & 0x80) == 0 || section->table_id == 0)
+  if ((data[0] & 0x80) == 0 || section->table_id == 0) {
     section->subtable_extension = 0;
-  else
+    section->section_number = 0;
+    section->last_section_number = 0;
+  } else {
     section->subtable_extension = GST_READ_UINT16_BE (data + 2);
+    section->section_number = *(data + 5);
+    section->last_section_number = *(data + 6);
+  }
 
   subtable = mpegts_packetizer_stream_subtable_new (section->table_id,
-      section->subtable_extension);
+      section->subtable_extension, section->section_number);
 
   subtable_list = g_slist_find_custom (stream->subtables, subtable,
       mpegts_packetizer_stream_subtable_compare);
@@ -1539,6 +1548,7 @@ mpegts_packetizer_parse_eit (MpegTSPacketizer2 * packetizer,
 {
   GstStructure *eit = NULL, *event = NULL;
   guint service_id, last_table_id, segment_last_section_number;
+  guint section_number;
   guint transport_stream_id, original_network_id;
   gboolean free_ca_mode;
   guint event_id, running_status;
@@ -1580,6 +1590,7 @@ mpegts_packetizer_parse_eit (MpegTSPacketizer2 * packetizer,
   section->version_number = (tmp >> 1) & 0x1F;
   section->current_next_indicator = tmp & 0x01;
 
+  section_number = *data;
   /* skip section_number and last_section_number */
   data += 2;
 
@@ -1594,6 +1605,7 @@ mpegts_packetizer_parse_eit (MpegTSPacketizer2 * packetizer,
 
   eit = gst_structure_id_new (QUARK_EIT,
       QUARK_VERSION_NUMBER, G_TYPE_UINT, section->version_number,
+      QUARK_SECTION_NUMBER, G_TYPE_UINT, section_number,
       QUARK_CURRENT_NEXT_INDICATOR, G_TYPE_UINT,
       section->current_next_indicator, QUARK_SERVICE_ID, G_TYPE_UINT,
       service_id, QUARK_ACTUAL_TRANSPORT_STREAM, G_TYPE_BOOLEAN,
@@ -2305,31 +2317,136 @@ mpegts_packetizer_clear_packet (MpegTSPacketizer2 * packetizer,
   memset (packet, 0, sizeof (MpegTSPacketizerPacket));
 }
 
+/*
+ * process the tail of a previous section
+ *  which is placed before the next section header in a packet.
+ * must be called BEFORE _push_section() and 
+ *   be followed by (possibilly repetitive) calls of _push_section().
+ */
+gboolean
+mpegts_packetizer_push_section0 (MpegTSPacketizer2 * packetizer,
+    MpegTSPacketizerPacket * packet, MpegTSPacketizerSection * section)
+{
+  gboolean res = FALSE;
+  MpegTSPacketizerStream *stream;
+  guint8 pointer;
+  GstBuffer *sub_buf;
+  guint8 *data;
+  guint8 *end;
+
+  g_return_val_if_fail (GST_IS_MPEGTS_PACKETIZER (packetizer), FALSE);
+  g_return_val_if_fail (packet != NULL, FALSE);
+  g_return_val_if_fail (section != NULL, FALSE);
+
+  section->complete = FALSE;
+  if (packet->payload_unit_start_indicator == 0)
+    return TRUE;
+
+  data = packet->data;
+  pointer = *data++;
+  end = data + pointer;
+  packet->data = end;           /* for next call to _push_section() */
+  if (end >= packet->data_end) {
+    GST_WARNING ("PID %d PSI section pointer points past the end "
+        "of the buffer", packet->pid);
+    return FALSE;
+  }
+  /* if no data to process (thus end == data), just return */
+  if (end == data)
+    return TRUE;
+
+  sub_buf = gst_buffer_create_sub (packet->buffer,
+      data - GST_BUFFER_DATA (packet->buffer), end - data);
+
+  stream = packetizer->streams[packet->pid];
+  if (stream == NULL) {
+    stream = mpegts_packetizer_stream_new ();
+    packetizer->streams[packet->pid] = stream;
+  }
+
+  if (stream->continuity_counter != CONTINUITY_UNSET &&
+      (packet->continuity_counter == stream->continuity_counter + 1 ||
+          (stream->continuity_counter == MAX_CONTINUITY &&
+              packet->continuity_counter == 0))) {
+    stream->continuity_counter = packet->continuity_counter;
+    gst_adapter_push (stream->section_adapter, sub_buf);
+
+    res = TRUE;
+  } else {
+    if (stream->continuity_counter == CONTINUITY_UNSET)
+      GST_DEBUG ("PID %d waiting for pusi", packet->pid);
+    else
+      GST_DEBUG ("PID %d section discontinuity "
+          "(last_continuity: %d continuity: %d", packet->pid,
+          stream->continuity_counter, packet->continuity_counter);
+    mpegts_packetizer_clear_section (packetizer, stream);
+    gst_buffer_unref (sub_buf);
+  }
+
+  if (res) {
+    /* we pushed some data in the section adapter, see if the section is
+     * complete now */
+
+    /* >= as sections can be padded and padding is not included in
+     * section_length */
+    if (stream->section_adapter->size >= stream->section_length + 3) {
+      res = mpegts_packetizer_parse_section_header (packetizer,
+          stream, section);
+
+      /* flush stuffing bytes */
+      mpegts_packetizer_clear_section (packetizer, stream);
+    } else {
+      /* section not complete yet */
+      section->complete = FALSE;
+    }
+  }
+  return res;
+}
+
+/* must be called after _push_setion0(),
+ * should be called repeatedly while packet->data < packet->data_end,
+ *  to process multi section'ed packet.
+ */
 gboolean
 mpegts_packetizer_push_section (MpegTSPacketizer2 * packetizer,
     MpegTSPacketizerPacket * packet, MpegTSPacketizerSection * section)
 {
   gboolean res = FALSE;
   MpegTSPacketizerStream *stream;
-  guint8 pointer, table_id;
+  guint8 table_id;
   guint16 subtable_extension;
   guint section_length;
   GstBuffer *sub_buf;
   guint8 *data;
+  guint8 *end;
 
   data = packet->data;
+  end = packet->data_end;
   section->pid = packet->pid;
 
+  /* if packet.PUSI is set,
+   * previous call to _push_section0() / _push_section() already advanced
+   *  packet->data to the section head.
+   */
   if (packet->payload_unit_start_indicator == 1) {
-    pointer = *data++;
-    if (data + pointer > packet->data_end) {
+    /* caller should check the bellow two conditions, but just for safety */
+    if (data > packet->data_end) {
       GST_WARNING ("PID %d PSI section pointer points past the end "
           "of the buffer", packet->pid);
       goto out;
     }
+    if (data == packet->data_end) {
+      /* no new section is left, treat it as success */
+      section->complete = FALSE;
+      res = TRUE;
+      goto out;
+    }
 
-    data += pointer;
+    if (*data != 0xFF &&
+        packet->data_end - data > (GST_READ_UINT16_BE (data + 1) & 0x0FFF) + 3)
+      end = data + (GST_READ_UINT16_BE (data + 1) & 0x0FFF) + 3;
   }
+
   /* TDT and TOT sections (see ETSI EN 300 468 5.2.5)
    *  these sections do not extend to several packets so we don't need to use the
    *  sections filter. */
@@ -2349,7 +2466,7 @@ mpegts_packetizer_push_section (MpegTSPacketizer2 * packetizer,
   /* create a sub buffer from the start of the section (table_id and
    * section_length included) to the end */
   sub_buf = gst_buffer_create_sub (packet->buffer,
-      data - GST_BUFFER_DATA (packet->buffer), packet->data_end - data);
+      data - GST_BUFFER_DATA (packet->buffer), end - data);
 
 
   stream = packetizer->streams[packet->pid];
@@ -2433,7 +2550,7 @@ mpegts_packetizer_push_section (MpegTSPacketizer2 * packetizer,
   }
 
 out:
-  packet->data = data;
+  packet->data = end;
   GST_DEBUG ("result: %d complete: %d", res, section->complete);
   return res;
 }
@@ -2477,6 +2594,8 @@ _init_local (void)
       g_quark_from_string ("segment-last-section-number");
   QUARK_LAST_TABLE_ID = g_quark_from_string ("last-table-id");
   QUARK_EVENTS = g_quark_from_string ("events");
+
+  QUARK_SECTION_NUMBER = g_quark_from_string ("section-number");
 }
 
 /**
