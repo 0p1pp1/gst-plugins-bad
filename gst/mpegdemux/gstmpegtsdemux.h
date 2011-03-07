@@ -245,7 +245,7 @@ struct _GstMpegTSDemux {
 
   /* Array of MPEGTS_MAX_PID + 1 stream entries */
   GstMpegTSStream    **  streams;
-  
+
   /* Array of Elementary Stream pids for ts with PMT */
   guint16           * elementary_pids;
   guint             nb_elementary_pids;
