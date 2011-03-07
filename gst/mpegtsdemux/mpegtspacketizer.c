@@ -81,6 +81,8 @@ static gchar *get_encoding_and_convert (const gchar * text, guint length);
 #define VERSION_NUMBER_UNSET 255
 #define TABLE_ID_UNSET 0xFF
 
+#define ISDB 1
+
 static gint
 mpegts_packetizer_stream_subtable_compare (gconstpointer a, gconstpointer b)
 {
@@ -1655,6 +1657,38 @@ mpegts_packetizer_parse_eit (MpegTSPacketizer2 * packetizer,
       hour = ((utc_ptr[0] & 0xF0) >> 4) * 10 + (utc_ptr[0] & 0x0F);
       minute = ((utc_ptr[1] & 0xF0) >> 4) * 10 + (utc_ptr[1] & 0x0F);
       second = ((utc_ptr[2] & 0xF0) >> 4) * 10 + (utc_ptr[2] & 0x0F);
+
+      /* for ISDB-T/S */
+      /* In DVB, time is UTC, but in ISDB-T/S, JST is used */
+      /* adjust to UTC here */
+#if ISDB
+      if (hour < 9) {
+        hour += 15;
+        day--;
+      } else
+        hour -= 9;
+
+      if (day == 0)
+        switch (--month) {
+          case 0:
+            day = 31;
+            month = 12;
+            year--;
+            break;
+          case 1:
+          case 3:
+          case 5:
+          case 7:
+          case 8:
+          case 10:
+            day = 31;
+            break;
+          case 2:
+            day = !(year % 4) && ((year % 100) || !(year % 400)) ? 29 : 28;
+          default:
+            day = 30;
+        }
+#endif
     }
 
     duration = (((duration_ptr[0] & 0xF0) >> 4) * 10 +
@@ -2804,7 +2838,6 @@ get_encoding_and_convert (const gchar * text, guint length)
 
   g_return_val_if_fail (text != NULL, NULL);
 
-#define ISDB 1
 #if ISDB
   if (1) {
     return aribstr_to_utf8 (text, length);
