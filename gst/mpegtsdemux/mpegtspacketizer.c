@@ -472,6 +472,9 @@ mpegts_packetizer_parse_pat (MpegTSPacketizer2 * packetizer,
     pmt_pid = GST_READ_UINT16_BE (data) & 0x1FFF;
     data += 2;
 
+    if (program_number == 0)
+      continue;
+
     struct_name = g_strdup_printf ("program-%d", program_number);
     entry = gst_structure_new (struct_name, NULL);
     g_free (struct_name);
