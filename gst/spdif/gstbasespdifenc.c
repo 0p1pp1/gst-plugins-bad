@@ -1,5 +1,5 @@
 /* GStreamer 
- * Copyright (C) 2011 0p1pp1
+ * Copyright (C) 2011 Akihiro TSUKADA <tskd2 AT yahoo.co.jp>
  *
  * gstbasespdifenc.c: Base class for IEC61937 encoders/encapsulators,
  *                     used for the S/PDIF interface.
@@ -147,8 +147,6 @@ gst_base_spdif_enc_change_state (GstElement * element,
 
   switch (transition) {
     case GST_STATE_CHANGE_READY_TO_PAUSED:
-      gst_pad_set_active (enc->srcpad, TRUE);
-      gst_pad_set_active (enc->sinkpad, TRUE);
       gst_adapter_clear (enc->adapter);
       enc->next_ts = 0;
       enc->use_preamble = TRUE;
@@ -160,15 +158,6 @@ gst_base_spdif_enc_change_state (GstElement * element,
   }
 
   result = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
-
-  switch (transition) {
-    case GST_STATE_CHANGE_PAUSED_TO_READY:
-      gst_pad_set_active (enc->sinkpad, FALSE);
-      gst_pad_set_active (enc->srcpad, FALSE);
-      break;
-    default:
-      break;
-  }
 
   return result;
 }

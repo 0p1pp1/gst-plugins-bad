@@ -1,5 +1,5 @@
 /* GStreamer 
- * Copyright (C) 2011 0p1pp1
+ * Copyright (C) 2011 Akihiro TSUKADA <tskd2 AT yahoo.co.jp>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -29,11 +29,11 @@
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
-  if (!gst_element_register (plugin, "aac2spdif", GST_RANK_MARGINAL,
+  if (!gst_element_register (plugin, "aac2spdif", GST_RANK_NONE,
           GST_TYPE_AAC_SPDIF_ENC)) {
     return FALSE;
   }
-  if (!gst_element_register (plugin, "aacspdifbin", GST_RANK_MARGINAL,
+  if (!gst_element_register (plugin, "aacspdifbin", GST_RANK_MARGINAL + 1,
           GST_TYPE_AAC_SPDIF_BIN)) {
     return FALSE;
   }

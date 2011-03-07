@@ -1,5 +1,5 @@
 /* GStreamer 
- * Copyright (C) 2011 0p1pp1
+ * Copyright (C) 2011 Akihiro TSUKADA <tskd2 AT yahoo.co.jp>
  *
  * gstbasespdifenc.h: Base class for IEC61937 encoders/encapsulators,
  *                     used for the S/PDIF interface.

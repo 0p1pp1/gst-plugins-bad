@@ -1,5 +1,5 @@
 /* GStreamer 
- * Copyright (C) 2011 0p1pp1
+ * Copyright (C) 2011 Akihiro TSUKADA <tskd2 AT yahoo.co.jp>
  *
  * gstaacspdifenc.h: IEC61937 encapsulators of AAC ADTS,
  *                     used for the S/PDIF interface.

@@ -1,5 +1,5 @@
 /* GStreamer 
- * Copyright (C) 2011 0p1pp1
+ * Copyright (C) 2011 Akihiro TSUKADA <tskd2 AT yahoo.co.jp>
  *
  * gstaacspdifbin.c: S/PDIF (IEC958) bin for AAC ADTS.
  *
@@ -19,6 +19,9 @@
  * Boston, MA 02111-1307, USA.
  */
 
+/** example usage: 
+ *  gst-launch filesrc location=foo.aac ! aacspdifbin ! alsasink
+ */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -62,7 +65,7 @@ gst_aac_spdif_bin_base_init (gpointer g_class)
 
   gst_element_class_set_details_simple (element_class,
       "AAC S/PDIF Payloader bin", "Decoder/Audio/Bin",
-      "Bin of aacparse, aac2spdif", "0p1pp1");
+      "Bin of aacparse, aac2spdif", "Akihiro TSUKADA <tskd2@yahoo.co.jp>");
 }
 
 static void

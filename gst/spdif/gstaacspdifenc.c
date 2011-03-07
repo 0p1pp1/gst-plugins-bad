@@ -1,5 +1,5 @@
 /* GStreamer 
- * Copyright (C) 2011 0p1pp1
+ * Copyright (C) 2011 Akihiro TSUKADA <tskd2 AT yahoo.co.jp>
  *
  * gstaacspdifenc.c: IEC61937 encapsulators of AAC ADTS,
  *                     used for the S/PDIF interface.
@@ -20,7 +20,7 @@
  * Boston, MA 02111-1307, USA.
  */
 
-/** example esage: 
+/** example usage: 
  *  gst-launch filesrc location=foo.aac ! aacparse ! aac2spdif ! alsasink
  */
 #ifdef HAVE_CONFIG_H
@@ -65,7 +65,8 @@ gst_aac_spdif_enc_base_init (gpointer g_class)
   gst_element_class_set_details_simple (elem_class, "AAC to IEC958 filter",
       "Decoder/Filter/Audio",
       "Pads AAC ADTS frames into IEC61937 frames "
-      "suitable for a raw S/PDIF interface", "0p1pp1");
+      "suitable for a raw S/PDIF interface",
+      "Akihiro TSUKADA <tskd2@yahoo.co.jp>");
 
   gst_base_spdif_enc_class_add_pad_templates (klass,
       gst_static_caps_get (&AAC_SINK_CAPS));

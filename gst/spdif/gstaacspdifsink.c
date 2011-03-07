@@ -1,5 +1,5 @@
 /* GStreamer 
- * Copyright (C) 2011 0p1pp1
+ * Copyright (C) 2011 Akihiro TSUKADA <tskd2 AT yahoo.co.jp>
  *
  * gstaacspdifsink.c: S/PDIF (IEC958) sink bin for AAC ADTS.
  *
@@ -19,6 +19,9 @@
  * Boston, MA 02111-1307, USA.
  */
 
+/** example usage: 
+ *  gst-launch playbin2 uri=file:///foo.aac audio-sink=alsaspdifsink
+ */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -43,7 +46,7 @@ GST_BOILERPLATE_FULL (GstAacSpdifSink, gst_aac_spdif_sink, GstBin, GST_TYPE_BIN,
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("audio/mpeg, mpegversion = (int) { 2, 4 };"));
+    GST_STATIC_CAPS ("audio/mpeg, mpegversion = (int) { 2, 4 }"));
 
 
 static void
@@ -56,7 +59,8 @@ gst_aac_spdif_sink_base_init (gpointer g_class)
       gst_static_pad_template_get (&sink_template));
 
   gst_element_class_set_details_simple (element_class, "AAC S/PDIF sink",
-      "Sink/Audio/Bin", "Bin of aacparse, aac2spdif and alsasink", "0p1pp1");
+      "Sink/Audio/Bin", "Bin of aacparse, aac2spdif and alsasink",
+      "Akihiro TSUKADA <tskd2@yahoo.co.jp>");
 }
 
 static void
@@ -73,15 +77,18 @@ gst_aac_spdif_sink_init (GstAacSpdifSink * self, GstAacSpdifSinkClass * klass)
   self->aacparse = gst_element_factory_make ("aacparse", NULL);
   self->aac2spdif = gst_element_factory_make ("aac2spdif", NULL);
   self->sink = gst_element_factory_make ("alsasink", NULL);
-  g_return_if_fail (self->aacparse && self->aac2spdif && self->sink);
+  if (!self->aacparse || !self->aac2spdif || !self->sink)
+    GST_ELEMENT_ERROR (self, LIBRARY, INIT, (NULL),
+        ("failed to create internal component elements."));
 
-  g_object_set (G_OBJECT (self->sink), "device", "iec958", NULL);
   gst_bin_add_many (GST_BIN (self),
       self->aacparse, self->aac2spdif, self->sink, NULL);
   gst_element_link_many (self->aacparse, self->aac2spdif, self->sink, NULL);
 
   pad = gst_element_get_static_pad (self->aacparse, "sink");
-  g_return_if_fail (pad);
+  if (!pad)
+    GST_ELEMENT_ERROR (self, CORE, PAD, (NULL),
+        ("failed to get sink caps from aacparse"));
   gst_element_add_pad (GST_ELEMENT (self), gst_ghost_pad_new ("sink", pad));
   gst_object_unref (GST_OBJECT (pad));
 }
