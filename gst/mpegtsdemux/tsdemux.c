@@ -1325,6 +1325,46 @@ gst_ts_demux_flush_streams (GstTSDemux * demux)
       (GFunc) gst_ts_demux_stream_flush, NULL);
 }
 
+static gboolean
+is_valid_program (MpegTSBaseProgram * program)
+{
+  guint i;
+  guint pid;
+  const GValue *streams;
+  const GValue *value;
+  GstStructure *stream;
+  GstPad *pad;
+  gchar *name;
+
+  g_return_val_if_fail (program != NULL && program->pmt_info != NULL, FALSE);
+
+  streams = gst_structure_get_value (program->pmt_info, "streams");
+  if (streams == NULL)
+    return FALSE;
+
+  for (i = 0; i < gst_value_list_get_size (streams); ++i) {
+    value = gst_value_list_get_value (streams, i);
+    stream = g_value_get_boxed (value);
+    if (!gst_structure_get (stream, "pid", G_TYPE_UINT, &pid, NULL) ||
+        program->streams[pid] == NULL)
+      continue;
+
+    pad = ((TSDemuxStream *) program->streams[pid])->pad;
+    if (pad == NULL)
+      continue;
+
+    name = gst_pad_get_name (pad);
+    if (g_str_has_prefix (name, "video") || g_str_has_prefix (name, "audio")) {
+      g_free (name);
+      return TRUE;
+    }
+    g_free (name);
+  }
+
+  return FALSE;
+}
+
+
 static void
 gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
 {
@@ -1336,6 +1376,9 @@ gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
   if (demux->program_number == -1 ||
       demux->program_number == program->program_number) {
     GList *tmp;
+
+    if (demux->program_number == -1 && !is_valid_program (program))
+      return;
 
     GST_LOG ("program %d started", program->program_number);
     demux->program_number = program->program_number;
