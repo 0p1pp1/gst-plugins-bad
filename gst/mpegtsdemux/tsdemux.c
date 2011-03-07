@@ -1946,6 +1946,31 @@ gst_ts_demux_update_program (MpegTSBase * base, MpegTSBaseProgram * program)
   }
 }
 
+static gboolean
+is_valid_program (MpegTSBaseProgram * program)
+{
+  GList *tmp;
+
+  g_return_val_if_fail (program != NULL, FALSE);
+
+  for (tmp = program->stream_list; tmp; tmp = tmp->next) {
+    TSDemuxStream *stream = (TSDemuxStream *) tmp->data;
+    gchar *name;
+
+    if (stream->pad == NULL)
+      continue;
+
+    name = gst_pad_get_name (stream->pad);
+    if (g_str_has_prefix (name, "video") || g_str_has_prefix (name, "audio")) {
+      g_free (name);
+      return TRUE;
+    }
+    g_free (name);
+  }
+
+  return FALSE;
+}
+
 static void
 gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
 {
@@ -1959,6 +1984,9 @@ gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
       (demux->requested_program_number == -1 && demux->program_number == -1)) {
     GList *tmp;
     gboolean have_pads = FALSE;
+
+    if (demux->program_number == -1 && !is_valid_program (program))
+      return;
 
     GST_LOG ("program %d started", program->program_number);
     demux->program_number = program->program_number;
