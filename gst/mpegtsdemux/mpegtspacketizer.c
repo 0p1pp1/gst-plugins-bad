@@ -277,6 +277,10 @@ mpegts_packetizer_parse_packet (MpegTSPacketizer2 * packetizer,
   data = packet->data_start;
   data++;
 
+  /* check TSEI */
+  if (*data & 0x80)
+    return FALSE;
+
   packet->payload_unit_start_indicator = (*data >> 6) & 0x01;
   packet->pid = GST_READ_UINT16_BE (data) & 0x1FFF;
   data += 2;
