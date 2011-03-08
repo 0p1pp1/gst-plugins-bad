@@ -692,7 +692,7 @@ mpegts_base_is_psi (MpegTSBase * base, MpegTSPacketizerPacket * packet)
 
   if (!retval) {
     if (packet->payload_unit_start_indicator) {
-      table_id = *(packet->data);
+      table_id = *(packet->data + *(packet->data) + 1);
       i = 0;
       while (si_tables[i] != TABLE_ID_UNSET) {
         if (G_UNLIKELY (si_tables[i] == table_id)) {
