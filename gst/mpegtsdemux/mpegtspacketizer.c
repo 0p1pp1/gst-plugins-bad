@@ -296,6 +296,10 @@ mpegts_packetizer_parse_packet (MpegTSPacketizer2 * packetizer,
   data += 1;
 
   packet->data = data;
+  if (packet->pid == 0x1FFF) {
+    packet->payload = NULL;
+    return TRUE;
+  }
 
   if (packet->adaptation_field_control & 0x02)
     if (!mpegts_packetizer_parse_adaptation_field_control (packetizer, packet))
@@ -2376,6 +2380,7 @@ mpegts_packetizer_push_section0 (MpegTSPacketizer2 * packetizer,
   g_return_val_if_fail (packet != NULL, FALSE);
   g_return_val_if_fail (section != NULL, FALSE);
 
+  section->pid = packet->pid;
   section->complete = FALSE;
   if (packet->payload_unit_start_indicator == 0)
     return TRUE;
@@ -2482,8 +2487,13 @@ mpegts_packetizer_push_section (MpegTSPacketizer2 * packetizer,
       goto out;
     }
 
-    if (*data != 0xFF &&
-        packet->data_end - data > (GST_READ_UINT16_BE (data + 1) & 0x0FFF) + 3)
+    if (*data == 0xFF || *data == 0x72) {
+      section->complete = FALSE;
+      end = packet->data_end;
+      res = TRUE;
+      goto out;
+    }
+    if (packet->data_end - data > (GST_READ_UINT16_BE (data + 1) & 0x0FFF) + 3)
       end = data + (GST_READ_UINT16_BE (data + 1) & 0x0FFF) + 3;
   }
 
@@ -2498,6 +2508,7 @@ mpegts_packetizer_push_section (MpegTSPacketizer2 * packetizer,
     section->table_id = table_id;
     section->complete = TRUE;
     res = TRUE;
+    end = packet->data_end;
     GST_DEBUG ("TDT section pid:%d table_id:%d section_length: %d\n",
         packet->pid, table_id, section->section_length);
     goto out;
