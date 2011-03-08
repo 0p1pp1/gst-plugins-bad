@@ -374,6 +374,7 @@ mpegts_packetizer_parse_section_header (MpegTSPacketizer2 * packetizer,
   subtable->version_number = section->version_number;
   subtable->crc = section->crc;
   stream->section_table_id = section->table_id;
+  subtable->section_number = section->section_number;
 
   return TRUE;
 
@@ -2379,7 +2380,7 @@ mpegts_packetizer_push_section0 (MpegTSPacketizer2 * packetizer,
   if (packet->payload_unit_start_indicator == 0)
     return TRUE;
 
-  data = packet->data;
+  data = packet->payload;
   pointer = *data++;
   end = data + pointer;
   packet->data = end;           /* for next call to _push_section() */
@@ -2418,6 +2419,7 @@ mpegts_packetizer_push_section0 (MpegTSPacketizer2 * packetizer,
           stream->continuity_counter, packet->continuity_counter);
     mpegts_packetizer_clear_section (packetizer, stream);
     gst_buffer_unref (sub_buf);
+    return TRUE;
   }
 
   if (res) {
@@ -2426,7 +2428,8 @@ mpegts_packetizer_push_section0 (MpegTSPacketizer2 * packetizer,
 
     /* >= as sections can be padded and padding is not included in
      * section_length */
-    if (stream->section_adapter->size >= stream->section_length + 3) {
+    if (gst_adapter_available (stream->section_adapter) >=
+        stream->section_length + 3) {
       res = mpegts_packetizer_parse_section_header (packetizer,
           stream, section);
 
@@ -2570,7 +2573,8 @@ mpegts_packetizer_push_section (MpegTSPacketizer2 * packetizer,
 
     /* >= as sections can be padded and padding is not included in
      * section_length */
-    if (stream->section_adapter->size >= stream->section_length + 3) {
+    if (gst_adapter_available (stream->section_adapter) >=
+        stream->section_length + 3) {
       res = mpegts_packetizer_parse_section_header (packetizer,
           stream, section);
 

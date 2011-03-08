@@ -1419,7 +1419,7 @@ process_section (MpegTSBase * base)
       MpegTSPacketizerSection section;
 
       based =
-          mpegts_packetizer_push_section (base->packetizer, &packet, &section);
+          mpegts_packetizer_push_section0 (base->packetizer, &packet, &section);
       if (G_UNLIKELY (!based))
         /* bad section data */
         goto next;
@@ -1434,6 +1434,24 @@ process_section (MpegTSBase * base)
           goto next;
 
       }
+
+      do {
+        based = mpegts_packetizer_push_section (base->packetizer, &packet,
+            &section);
+        if (G_UNLIKELY (!based))
+          /* bad section data */
+          goto next;
+
+        if (G_LIKELY (section.complete)) {
+          /* section complete */
+          based = mpegts_base_handle_psi (base, &section);
+          gst_buffer_unref (section.buffer);
+
+          if (G_UNLIKELY (!based))
+            /* bad PSI table */
+            goto next;
+        }
+      } while (packet.data < packet.data_end);
 
       if (demux->program != NULL) {
         GST_DEBUG ("Got Program");
