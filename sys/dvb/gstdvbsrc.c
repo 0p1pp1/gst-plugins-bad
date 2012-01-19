@@ -1024,7 +1024,7 @@ gst_dvbsrc_open_dvr (GstDvbSrc * object)
   GST_INFO_OBJECT (object, "Setting buffer size");
   if (ioctl (object->fd_dvr, DMX_SET_BUFFER_SIZE, 1024 * 1024) < 0) {
     GST_INFO_OBJECT (object, "DMX_SET_BUFFER_SIZE failed");
-    return FALSE;
+    //return FALSE;
   }
   return TRUE;
 }
