@@ -1044,8 +1044,8 @@ mpegts_base_handle_psi (MpegTSBase * base, MpegTSPacketizerSection * section)
   gboolean res = TRUE;
   GstStructure *structure = NULL;
 
-  /* table ids 0x70 - 0x73 do not have a crc */
-  if (G_LIKELY (section->table_id < 0x70 || section->table_id > 0x73)) {
+  /* table ids 0x70 - 0x72 do not have a crc */
+  if (G_LIKELY (section->table_id < 0x70 || section->table_id > 0x72)) {
     if (G_UNLIKELY (mpegts_base_calc_crc32 (GST_BUFFER_DATA (section->buffer),
                 GST_BUFFER_SIZE (section->buffer)) != 0)) {
       GST_WARNING_OBJECT (base, "bad crc in psi pid 0x%x", section->pid);
@@ -1143,6 +1143,8 @@ mpegts_base_handle_psi (MpegTSBase * base, MpegTSPacketizerSection * section)
       break;
     case 0x70:
       /* TDT (Time and Date table) */
+    case 0x73:
+      /* TOT (Time Offset table) */
       structure = mpegts_packetizer_parse_tdt (base->packetizer, section);
       if (G_LIKELY (structure))
         mpegts_base_apply_tdt (base, section->pid, structure);

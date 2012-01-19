@@ -2079,10 +2079,10 @@ mpegts_packetizer_parse_tdt (MpegTSPacketizer2 * packetizer,
   guint year, month, day, hour, minute, second;
   guint8 *data, *end, *utc_ptr;
 
-  GST_DEBUG ("TDT");
+  GST_DEBUG ("TDT/TOT");
   /* length always 8 */
-  if (G_UNLIKELY (GST_BUFFER_SIZE (section->buffer) != 8)) {
-    GST_WARNING ("PID %d invalid TDT size %d",
+  if (G_UNLIKELY (GST_BUFFER_SIZE (section->buffer) < 8)) {
+    GST_WARNING ("PID %d invalid TDT/TOT size %d",
         section->pid, section->section_length);
     goto error;
   }
@@ -2122,7 +2122,7 @@ mpegts_packetizer_parse_tdt (MpegTSPacketizer2 * packetizer,
     minute = ((utc_ptr[1] & 0xF0) >> 4) * 10 + (utc_ptr[1] & 0x0F);
     second = ((utc_ptr[2] & 0xF0) >> 4) * 10 + (utc_ptr[2] & 0x0F);
   }
-  tdt = gst_structure_new ("tdt",
+  tdt = gst_structure_new (section->table_id == 0x70 ? "tdt" : "tot",
       "year", G_TYPE_UINT, year,
       "month", G_TYPE_UINT, month,
       "day", G_TYPE_UINT, day,
