@@ -2442,7 +2442,7 @@ mpegts_packetizer_push_section0 (MpegTSPacketizer2 * packetizer,
 
   section->pid = packet->pid;
   section->complete = FALSE;
-  if (packet->payload_unit_start_indicator == 0)
+  if (packet->payload_unit_start_indicator == 0 || !packet->payload)
     return TRUE;
 
   data = packet->payload;
@@ -2529,6 +2529,13 @@ mpegts_packetizer_push_section (MpegTSPacketizer2 * packetizer,
   end = packet->data_end;
   section->pid = packet->pid;
 
+  // check if playload is present
+  if (!packet->payload || data == packet->data_end) {
+    section->complete = FALSE;
+    res = TRUE;
+    goto out;
+  }
+
   /* if packet.PUSI is set,
    * previous call to _push_section0() / _push_section() already advanced
    *  packet->data to the section head.
@@ -2538,12 +2545,6 @@ mpegts_packetizer_push_section (MpegTSPacketizer2 * packetizer,
     if (data > packet->data_end) {
       GST_WARNING ("PID %d PSI section pointer points past the end "
           "of the buffer", packet->pid);
-      goto out;
-    }
-    if (data == packet->data_end) {
-      /* no new section is left, treat it as success */
-      section->complete = FALSE;
-      res = TRUE;
       goto out;
     }
 
@@ -2623,6 +2624,8 @@ mpegts_packetizer_push_section (MpegTSPacketizer2 * packetizer,
       (packet->continuity_counter == stream->continuity_counter + 1 ||
           (stream->continuity_counter == MAX_CONTINUITY &&
               packet->continuity_counter == 0))) {
+    // cc increments only when a payload is present, but
+    //  assert(packet->payload != NULL)
     stream->continuity_counter = packet->continuity_counter;
     gst_adapter_push (stream->section_adapter, sub_buf);
 
