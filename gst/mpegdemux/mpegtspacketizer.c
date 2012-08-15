@@ -2360,6 +2360,7 @@ mpegts_packetizer_push_section (MpegTSPacketizer * packetizer,
     section->table_id = table_id;
     section->complete = TRUE;
     res = TRUE;
+    end = packet->data_end;
     GST_DEBUG ("TDT section pid:%d table_id:%d section_length: %d\n",
         packet->pid, table_id, section->section_length);
     goto out;
