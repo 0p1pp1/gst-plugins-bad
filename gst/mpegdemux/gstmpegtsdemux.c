@@ -459,7 +459,7 @@ static void
 gst_mpegts_demux_remove_pad (gpointer item, gpointer data)
 {
   GstPad *pad = item;
-  GstPad *peer;
+  GstPad *peer G_GNUC_UNUSED;
   GstMpegTSDemux *demux = data;
   GstMpegTSStream *stream = gst_pad_get_element_private (pad);
 
