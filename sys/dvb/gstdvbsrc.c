@@ -513,7 +513,7 @@ gst_dvbsrc_init (GstDvbSrc * object, GstDvbSrcClass * klass)
 
 static const struct
 {
-  gchar *name;
+  const gchar *const name;
   guint32 id;
 } s2api_symbols[] = {
   S2API_SYMDEF (DTV_UNDEFINED), S2API_SYMDEF (DTV_TUNE),
@@ -582,7 +582,7 @@ s2api_symbol_id (const gchar * p)
   if (s2api_tbl == NULL) {
     s2api_tbl = g_hash_table_new (g_str_hash, g_str_equal);
     for (i = 0; s2api_symbols[i].name != NULL; i++)
-      g_hash_table_insert (s2api_tbl, s2api_symbols[i].name,
+      g_hash_table_insert (s2api_tbl, (gpointer) s2api_symbols[i].name,
           GUINT_TO_POINTER (s2api_symbols[i].id));
   }
   return GPOINTER_TO_UINT (g_hash_table_lookup (s2api_tbl, p));
