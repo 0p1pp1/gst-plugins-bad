@@ -23,12 +23,17 @@
 
 #include <gst/gst.h>
 #include "gstaacspdifenc.h"
+#include "gstaacspdifbin.h"
 
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
-  if (!gst_element_register (plugin, "aac2spdif", GST_RANK_SECONDARY + 1,
+  if (!gst_element_register (plugin, "aac2spdif", GST_RANK_MARGINAL,
           GST_TYPE_AAC_SPDIF_ENC)) {
+    return FALSE;
+  }
+  if (!gst_element_register (plugin, "aacspdifbin", GST_RANK_MARGINAL,
+          GST_TYPE_AAC_SPDIF_BIN)) {
     return FALSE;
   }
 

@@ -3,7 +3,8 @@ plugin_LTLIBRARIES = libgstspdif.la
 libgstspdif_la_SOURCES = \
 	plugin.c \
 	gstbasespdifenc.c \
-	gstaacspdifenc.c
+	gstaacspdifenc.c \
+  gstaacspdifbin.c
 
 libgstspdif_la_CFLAGS = \
 	$(GST_PLUGINS_BASE_CFLAGS) \
@@ -18,4 +19,5 @@ libgstspdif_la_LIBTOOLFLAGS = --tag=disable-static
 
 noinst_HEADERS = \
 	gstbasespdifenc.h \
-	gstaacspdifenc.h
+	gstaacspdifenc.h \
+  gstaacspdifbin.h

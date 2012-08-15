@@ -129,8 +129,7 @@ gst_base_spdif_enc_init (GstBaseSpdifEnc * self, GstBaseSpdifEncClass * klass)
   g_return_if_fail (template != NULL);
   self->srcpad = gst_pad_new_from_template (template, "src");
   g_return_if_fail (GST_IS_PAD (self->srcpad));
-  gst_pad_set_setcaps_function (self->srcpad,
-      GST_DEBUG_FUNCPTR (gst_base_spdif_enc_setcaps));
+  gst_pad_use_fixed_caps (self->srcpad);
   gst_element_add_pad (GST_ELEMENT (self), self->srcpad);
   GST_DEBUG_OBJECT (self, "InitFunc finished.");
 
