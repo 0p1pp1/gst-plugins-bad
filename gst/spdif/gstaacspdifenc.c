@@ -63,7 +63,7 @@ gst_aac_spdif_enc_base_init (gpointer g_class)
   GstBaseSpdifEncClass *klass = GST_BASE_SPDIF_ENC_CLASS (g_class);
 
   gst_element_class_set_details_simple (elem_class, "AAC to IEC958 filter",
-      "Codec/Muxer/Audio",
+      "Decoder/Filter/Audio",
       "Pads AAC ADTS frames into IEC61937 frames "
       "suitable for a raw S/PDIF interface", "0p1pp1");
 
