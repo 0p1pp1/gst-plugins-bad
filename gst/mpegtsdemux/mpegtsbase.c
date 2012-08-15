@@ -1062,6 +1062,8 @@ mpegts_base_handle_psi (MpegTSBase * base, MpegTSPacketizerSection * section)
         if (base->seen_pat == FALSE) {
           base->seen_pat = TRUE;
           base->first_pat_offset = GST_BUFFER_OFFSET (section->buffer);
+          if (base->first_pat_offset == -1)
+            base->first_pat_offset = 0;
           GST_DEBUG ("First PAT offset: %" G_GUINT64_FORMAT,
               base->first_pat_offset);
         }
