@@ -2710,14 +2710,14 @@ get_encoding_and_convert (const gchar * text, guint length)
   guint start_text = 0;
   gboolean is_multibyte;
 
-  if (1) {
-    return aribstr_to_utf8 (text, length);
-  }
-
   g_return_val_if_fail (text != NULL, NULL);
 
   if (length == 0)
     return NULL;
+
+  if (1) {
+    return aribstr_to_utf8 (text, length);
+  }
 
   encoding = get_encoding (text, &start_text, &is_multibyte);
 
