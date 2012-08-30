@@ -698,8 +698,8 @@ gst_mpegts_demux_cleanup_stream (GstMpegTSDemux * demux, guint16 PID)
         gst_buffer_unref (stream->pes_buffer);
       gst_pes_filter_uninit (&stream->filter);
       if (stream->pad) {
+        gst_pad_set_active (stream->pad, FALSE);
         gst_element_remove_pad (GST_ELEMENT_CAST (demux), stream->pad);
-        gst_object_unref (stream->pad);
       }
       if (stream->ES_info)
         gst_mpeg_descriptor_free (stream->ES_info);
