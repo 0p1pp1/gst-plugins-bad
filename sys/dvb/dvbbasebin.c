@@ -957,7 +957,10 @@ dvb_base_bin_pat_info_cb (DvbBaseBin * dvbbasebin, GstStructure * pat_info)
     old_pmt_pid = program->pmt_pid;
     program->pmt_pid = pid;
 
-    if (program->selected) {
+    /* pmt_pid should be always added,
+     * because pmt_pid is required for the program to be "selected".
+     */
+    if (1 || program->selected) {
       /* PAT update */
       if (old_pmt_pid != G_MAXUINT16 && old_pmt_pid != program->pmt_pid)
         dvb_base_bin_get_stream (dvbbasebin, old_pmt_pid)->usecount -= 1;
