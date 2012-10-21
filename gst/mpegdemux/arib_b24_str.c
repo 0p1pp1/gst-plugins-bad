@@ -1,4 +1,5 @@
 #include <glib.h>
+#include <glib/gprintf.h>
 
 /* exported function */
 gchar *aribstr_to_utf8 (const gchar * text, guint length);
@@ -331,14 +332,23 @@ aribstr_to_utf8 (const gchar * source, const guint len)
         state.gl = 1;
         continue;
         break;
+      case 0x07:               /* BELL */
+      case 0x08:               /* BS */
+      case 0x09:               /* HT */
       case 0x0A:               /* LF ?? */
       case 0x0D:               /* CR */
+      case 0x20:               /* SPACE */
+      case 0x7F:               /* DEL */
+      case '\xA0':
+      case '\xFF':
         mode = NORMAL;
         state = state_def;
-        break;                  /* don't continue. as CR is a normal C0 char. */
+        g_string_append_c (euc_str, source[i] & 0x7F);
+        continue;
+        break;
     }
     if (!(source[i] & 0x60)) {  /* C0 or C1 */
-      g_string_append_c (euc_str, source[i]);
+      /* skip */
       continue;
     }
 
@@ -389,8 +399,7 @@ aribstr_to_utf8 (const gchar * source, const guint len)
             continue;
             break;
           default:
-            g_string_append_c (euc_str, '\x1B');
-            g_string_append_c (euc_str, source[i]);
+            /* skip unknown ESC sequences */
             mode = NORMAL;
             continue;
         }
@@ -407,6 +416,7 @@ aribstr_to_utf8 (const gchar * source, const guint len)
         break;
       case DESIGNATE_MB:
         switch (source[i]) {
+          case '\x28':         /* DRCS only */
           case '\x29':
           case '\x2A':
           case '\x2B':
@@ -453,17 +463,20 @@ aribstr_to_utf8 (const gchar * source, const guint len)
   }
 
   g_string_append_c (euc_str, '\0');
-/*
-#include <stdio.h>
-printf("ilen:%d olen:%d\n", len, euc_str->len);
-{int i; for(i=0; i<j; i++) printf(" %02hhX", euc_str->str[i]); printf("\n");}
- */
-
+#if 0
+  g_printf ("ilen:%u olen:%" G_GSIZE_FORMAT "\n", len, euc_str->len);
+  {
+    int i;
+    for (i = 0; i < len; i++)
+      g_printf (" %02hhX", source[i]);
+    g_printf ("\n");
+  }
+#endif
   converted_str = g_convert_with_fallback (euc_str->str, euc_str->len,
-      "utf-8", "EUC-JISX0213", NULL, &used, NULL, NULL);
+      "utf-8", "EUC-JISX0213", "<?>", &used, NULL, NULL);
   if (!converted_str) {
-//printf("iconv error. [%#02hhx]  %d char. left.\n", euc_str->str[used], euc_str->len - used);
-    converted_str = g_strdup ("<charset conversion failed>");
+    converted_str = g_strdup_printf ("<charset conversion failed>"
+        "0x%04hhx at %" G_GSIZE_FORMAT, euc_str->str[used], used);
   }
   g_string_free (euc_str, TRUE);
   return converted_str;
