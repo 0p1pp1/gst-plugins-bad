@@ -1396,7 +1396,7 @@ calc_timestamp (GstMpegTSStream * stream, guint64 pts)
   pcr_stream = get_pcr_stream (demux, stream);
 
   /* for partial TS, set PCR if not defined */
-  if (G_UNLIKELY (mpegts_is_elem_pid (demux, stream->PID) &&
+  if (G_UNLIKELY (mpegts_is_elem_pid (demux, stream->PID) && pcr_stream &&
           pcr_stream->last_pcr == G_MAXUINT64))
     set_new_pcr (demux, stream, (pts > CLOCK_FREQ) ? pts - CLOCK_FREQ : 0);
 
