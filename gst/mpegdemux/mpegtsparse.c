@@ -713,6 +713,31 @@ mpegts_parse_tspad_push_section (MpegTSParse * parse, MpegTSParsePad * tspad,
       ret = GST_FLOW_OK;
     }
   }
+#if 0
+  else if (section->table_id == 0x02) {
+    /* if a PMT has no src pad,
+     * it should be dropped for request pads as well.
+     */
+    GstIteratorResult ret;
+    GstPad *pad;
+    MpegTSParsePad *tpad;
+    GstIterator *it = gst_element_iterate_src_pads (GST_ELEMENT (parse));
+
+    to_push = FALSE;
+    do {
+      ret = gst_iterator_next (it, (gpointer *) & pad);
+      if (ret == GST_ITERATOR_OK) {
+        tpad = (MpegTSParsePad *) gst_pad_get_element_private (pad);
+        to_push = (section->subtable_extension == tpad->program_number);
+        gst_object_unref (pad);
+        if (to_push)
+          break;
+      } else if (ret == GST_ITERATOR_RESYNC)
+        gst_iterator_resync (it);
+    } while (!(ret == GST_ITERATOR_DONE || ret == GST_ITERATOR_ERROR));
+    gst_iterator_free (it);
+  }
+#endif
   GST_DEBUG_OBJECT (parse,
       "pushing section: %d program number: %d table_id: %d", to_push,
       tspad->program_number, section->table_id);
