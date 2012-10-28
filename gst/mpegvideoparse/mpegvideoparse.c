@@ -576,7 +576,7 @@ gst_mpegvideoparse_chain_forward (MpegVideoParse * mpegvideoparse,
   /* If we have an offset, and the incoming offset doesn't match, 
      or we have a discont, handle it first by flushing out data
      we have collected. */
-  if (mpegvideoparse->next_offset != GST_BUFFER_OFFSET_NONE) {
+  if (0 && mpegvideoparse->next_offset != GST_BUFFER_OFFSET_NONE) {
     if (GST_BUFFER_OFFSET_IS_VALID (buf)) {
       if (mpegvideoparse->next_offset != GST_BUFFER_OFFSET (buf))
         discont = TRUE;
