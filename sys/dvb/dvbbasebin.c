@@ -340,7 +340,7 @@ dvb_base_bin_init (DvbBaseBin * dvbbasebin, DvbBaseBinClass * klass)
 
   dvbbasebin->dvbsrc = gst_element_factory_make ("dvbsrc", NULL);
   dvbbasebin->buffer_queue = gst_element_factory_make ("queue", NULL);
-  dvbbasebin->mpegtsparse = gst_element_factory_make ("mpegtsparse", NULL);
+  dvbbasebin->mpegtsparse = gst_element_factory_make ("tsparse", NULL);
 
   g_object_set (G_OBJECT (dvbbasebin->buffer_queue),
       "max-size-buffers", 0, "max-size-time", 5000000000, "leaky", 0, NULL);
