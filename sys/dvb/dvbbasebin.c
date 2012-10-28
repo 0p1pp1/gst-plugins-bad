@@ -690,8 +690,10 @@ dvb_base_bin_remove_pmt_streams (DvbBaseBin * dvbbasebin, GstStructure * pmt)
       if (desc->str[0] != 0x09)
         continue;
       cas_id = desc->str[2] << 8 | desc->str[3];
-      if (cas_id != 0x0005 && cas_id != 0x000A)
+      if (cas_id != 0x0005 && cas_id != 0x000A) {
+        GST_DEBUG_OBJECT (dvbbasebin, "cas_id:0x%04x not known.", cas_id);
         continue;
+      }
       pid = (desc->str[4] << 8 | desc->str[5]) & 0x1fff;
       if (pid == 0x1fff)
         continue;
@@ -771,10 +773,12 @@ dvb_base_bin_add_pmt_streams (DvbBaseBin * dvbbasebin, GstStructure * pmt)
       desc = g_value_get_boxed (value);
       if (desc->str[0] != 0x09)
         continue;
-      cas_id = desc->str[2] << 8 | desc->str[3];
-      if (cas_id != 0x0005 && cas_id != 0x000A)
+      cas_id = GST_READ_UINT16_BE (desc->str + 2);
+      if (cas_id != 0x0005 && cas_id != 0x000A) {
+        GST_DEBUG_OBJECT (dvbbasebin, "cas_id:0x%04x not known.", cas_id);
         continue;
-      pid = (desc->str[4] << 8 | desc->str[5]) & 0x1fff;
+      }
+      pid = GST_READ_UINT16_BE (desc->str + 4) & 0x1fff;
       if (pid == 0x1fff)
         continue;
       stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
@@ -810,10 +814,10 @@ dvb_base_bin_add_pmt_streams (DvbBaseBin * dvbbasebin, GstStructure * pmt)
       desc = g_value_get_boxed (value);
       if (desc->str[0] != 0x09)
         continue;
-      cas_id = desc->str[2] << 8 | desc->str[3];
+      cas_id = GST_READ_UINT16_BE (desc->str + 2);
       if (cas_id != 0x0005 && cas_id != 0x000A)
         continue;
-      pid = (desc->str[4] << 8 | desc->str[5]) & 0x1fff;
+      pid = GST_READ_UINT16_BE (desc->str + 4) & 0x1fff;
       if (pid == 0x1fff)
         continue;
       stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
