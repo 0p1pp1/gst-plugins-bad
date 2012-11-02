@@ -204,7 +204,7 @@ set_properties_for_channel (GObject * dvbbasebin, const gchar * channel_name)
       gchar *type;
 
       g_object_set (dvbbasebin, "program-numbers",
-          g_hash_table_lookup (params, "sid"), NULL);
+          g_strdup (g_hash_table_lookup (params, "sid")), NULL);
       /* check if it is terrestrial or satellite */
       if (adapter == NULL)
         adapter = g_getenv ("GST_DVB_ADAPTER");
@@ -422,7 +422,7 @@ set_properties_for_channel (GObject * dvbbasebin, const gchar * channel_name)
 
         ret = TRUE;
 
-        val = g_hash_table_lookup (params, "s2api-tune-props");
+        val = g_strdup (g_hash_table_lookup (params, "s2api-tune-props"));
         g_object_set (dvbbasebin, "s2api-tune-props", val, NULL);
       }
     }

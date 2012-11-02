@@ -698,7 +698,7 @@ gst_dvbsrc_set_property (GObject * _object, guint prop_id,
 
       GST_INFO_OBJECT (object, "Set Property: ARG_DVBSRC_PIDS");
       pid_string = g_value_dup_string (value);
-      if (!strcmp (pid_string, "8192")) {
+      if (!strcmp (pid_string, "8192") || !strcmp (pid_string, "0x2000")) {
         /* get the whole ts */
         int pid_count = 1;
         object->pids[0] = 8192;

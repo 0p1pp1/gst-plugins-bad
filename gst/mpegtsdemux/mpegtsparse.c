@@ -470,46 +470,37 @@ mpegts_parse_tspad_push_section (MpegTSParse2 * parse, MpegTSParsePad * tspad,
   GstFlowReturn ret = GST_FLOW_NOT_LINKED;
   gboolean to_push = TRUE;
 
-  if (tspad->program_number != -1) {
-    if (tspad->program) {
-      /* we push all sections to all pads except PMTs which we
-       * only push to pads meant to receive that program number */
-      if (section->table_id == 0x02) {
-        /* PMT */
-        if (section->subtable_extension != tspad->program_number)
-          to_push = FALSE;
-      }
-    } else {
-      /* there's a program filter on the pad but the PMT for the program has not
-       * been parsed yet, ignore the pad until we get a PMT */
-      to_push = FALSE;
-      ret = GST_FLOW_OK;
-    }
+  if (tspad->program_number != -1 && !tspad->program) {
+    /* there's a program filter on the pad but the PMT for the program has not
+     * been parsed yet, ignore the pad until we get a PMT */
+    to_push = FALSE;
+    ret = GST_FLOW_OK;
   }
 #if 1
-  else if (section->table_id == 0x02) {
+  else if (section->pid > 0x20) {
     /* For a request pad,
      * PMTs which have no associated pad should be dropped,
      * as it means no one wants that program.
      */
-    GstIteratorResult ret;
-    GstPad *pad;
-    MpegTSParsePad *tpad;
-    GstIterator *it = gst_element_iterate_src_pads (GST_ELEMENT (parse));
+    GList *progs = g_hash_table_get_values (((MpegTSBase *) parse)->programs);
 
-    to_push = FALSE;
-    do {
-      ret = gst_iterator_next (it, (gpointer *) & pad);
-      if (ret == GST_ITERATOR_OK) {
-        tpad = (MpegTSParsePad *) gst_pad_get_element_private (pad);
-        to_push = (section->subtable_extension == tpad->program_number);
-        gst_object_unref (pad);
+    while (progs) {
+      MpegTSBaseProgram *program = progs->data;
+
+      if (section->pid == program->pmt_pid || section->pid == program->pcr_pid) {
+        to_push = (tspad->program_number != -1 &&
+            tspad->program_number == program->program_number) ||
+            (tspad->program_number == -1 &&
+            ((MpegTSParseProgram *) program)->selected > 0);
         if (to_push)
           break;
-      } else if (ret == GST_ITERATOR_RESYNC)
-        gst_iterator_resync (it);
-    } while (!(ret == GST_ITERATOR_DONE || ret == GST_ITERATOR_ERROR));
-    gst_iterator_free (it);
+      }
+
+      progs = g_list_delete_link (progs, progs);
+    }
+
+    if (progs)
+      g_list_free (progs);
   }
 #endif
   GST_DEBUG_OBJECT (parse,
@@ -594,6 +585,27 @@ mpegts_parse_push (MpegTSBase * base, MpegTSPacketizerPacket * packet,
   buffer = gst_buffer_make_metadata_writable (packet->buffer);
   /* we have the same caps on all the src pads */
   gst_buffer_set_caps (buffer, base->packetizer->caps);
+
+  if (!section) {
+    GList *progs = g_hash_table_get_values (base->programs);
+
+    while (progs) {
+      MpegTSBaseProgram *bp = progs->data;
+
+      if (((MpegTSParseProgram *) bp)->selected > 0 && bp->streams[pid])
+        break;
+
+      progs = g_list_delete_link (progs, progs);
+    }
+
+    if (!progs) {
+      // none of the selected programs contain the PES of this pid
+      gst_buffer_unref (buffer);
+      packet->buffer = NULL;
+      return GST_FLOW_OK;
+    }
+    g_list_free (progs);
+  }
 
   GST_OBJECT_LOCK (parse);
   /* clear tspad->pushed on pads */

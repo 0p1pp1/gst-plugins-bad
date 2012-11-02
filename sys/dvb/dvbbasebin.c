@@ -638,7 +638,7 @@ foreach_stream_build_filter (gpointer key, gpointer value, gpointer user_data)
   if (stream->usecount > 0) {
     /* TODO: use g_strjoinv FTW */
     tmp = dvbbasebin->filter;
-    pid = g_strdup_printf ("%d", stream->pid);
+    pid = g_strdup_printf ("0x%04hx", stream->pid);
     dvbbasebin->filter = g_strjoin (":", pid, dvbbasebin->filter, NULL);
 
     g_free (pid);
@@ -659,7 +659,7 @@ dvb_base_bin_rebuild_filter (DvbBaseBin * dvbbasebin)
   GST_INFO_OBJECT (dvbbasebin, "rebuilt filter %s", dvbbasebin->filter);
 
   /* FIXME: find a way to not add unwanted pids controlled by app */
-  g_object_set (dvbbasebin->dvbsrc, "pids", dvbbasebin->filter, NULL);
+  //g_object_set (dvbbasebin->dvbsrc, "pids", dvbbasebin->filter, NULL);
   g_free (dvbbasebin->filter);
   dvbbasebin->filter = NULL;
 }
@@ -765,6 +765,19 @@ dvb_base_bin_add_pmt_streams (DvbBaseBin * dvbbasebin, GstStructure * pmt)
   guint cas_id;
   gint j;
 
+#if 1
+  if (gst_structure_has_field (pmt, "ca-pid")) {
+    gst_structure_get_uint (pmt, "ca-system-id", &cas_id);
+    gst_structure_get_uint (pmt, "ca-pid", &pid);
+
+    if (pid != 0x1fff) {
+      stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
+      if (stream == NULL)
+        stream = dvb_base_bin_add_stream (dvbbasebin, (guint16) pid);
+      ++stream->usecount;
+    }
+  }
+#else
   if (gst_structure_has_field (pmt, "descriptors")) {
     gst_structure_get (pmt, "descriptors", G_TYPE_VALUE_ARRAY,
         &descriptors, NULL);
@@ -785,8 +798,10 @@ dvb_base_bin_add_pmt_streams (DvbBaseBin * dvbbasebin, GstStructure * pmt)
       if (stream == NULL)
         stream = dvb_base_bin_add_stream (dvbbasebin, (guint16) pid);
       ++stream->usecount;
+      break;
     }
   }
+#endif
 
   gst_structure_get_uint (pmt, "program-number", &program_number);
   streams = gst_structure_get_value (pmt, "streams");
@@ -857,7 +872,8 @@ dvb_base_bin_activate_program (DvbBaseBin * dvbbasebin,
     old_pcr_pid = program->pcr_pid;
     gst_structure_get_uint (program->pmt, "pcr-pid", &pid);
     program->pcr_pid = pid;
-    if (old_pcr_pid != G_MAXUINT16 && old_pcr_pid != program->pcr_pid)
+
+    if (old_pcr_pid != G_MAXUINT16)
       dvb_base_bin_get_stream (dvbbasebin, old_pcr_pid)->usecount--;
 
     stream = dvb_base_bin_get_stream (dvbbasebin, program->pcr_pid);

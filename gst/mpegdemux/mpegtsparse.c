@@ -697,6 +697,7 @@ mpegts_parse_tspad_push_section (MpegTSParse * parse, MpegTSParsePad * tspad,
   GstFlowReturn ret = GST_FLOW_NOT_LINKED;
   gboolean to_push = TRUE;
 
+#if 0
   if (tspad->program_number != -1) {
     if (tspad->program) {
       /* we push all sections to all pads except PMTs which we
@@ -713,29 +714,35 @@ mpegts_parse_tspad_push_section (MpegTSParse * parse, MpegTSParsePad * tspad,
       ret = GST_FLOW_OK;
     }
   }
-#if 0
-  else if (section->table_id == 0x02) {
-    /* if a PMT has no src pad,
-     * it should be dropped for request pads as well.
-     */
-    GstIteratorResult ret;
-    GstPad *pad;
-    MpegTSParsePad *tpad;
-    GstIterator *it = gst_element_iterate_src_pads (GST_ELEMENT (parse));
-
+#else
+  if (tspad->program_number != -1 && !tspad->program) {
+    /* there's a program filter on the pad but the PMT for the program has not
+     * been parsed yet, ignore the pad until we get a PMT */
     to_push = FALSE;
-    do {
-      ret = gst_iterator_next (it, (gpointer *) & pad);
-      if (ret == GST_ITERATOR_OK) {
-        tpad = (MpegTSParsePad *) gst_pad_get_element_private (pad);
-        to_push = (section->subtable_extension == tpad->program_number);
-        gst_object_unref (pad);
+    ret = GST_FLOW_OK;
+  } else if (section->pid > 0x20) {
+    /* For a request pad,
+     * PMTs which have no associated pad should be dropped,
+     * as it means no one wants that program.
+     */
+    GList *progs = g_hash_table_get_values (parse->programs);
+
+    while (progs) {
+      MpegTSParseProgram *program = progs->data;
+
+      if (section->pid == program->pmt_pid || section->pid == program->pcr_pid) {
+        to_push = (tspad->program_number != -1 &&
+            tspad->program_number == program->program_number) ||
+            (tspad->program_number == -1 && program->selected > 0);
         if (to_push)
           break;
-      } else if (ret == GST_ITERATOR_RESYNC)
-        gst_iterator_resync (it);
-    } while (!(ret == GST_ITERATOR_DONE || ret == GST_ITERATOR_ERROR));
-    gst_iterator_free (it);
+      }
+
+      progs = g_list_delete_link (progs, progs);
+    }
+
+    if (progs)
+      g_list_free (progs);
   }
 #endif
   GST_DEBUG_OBJECT (parse,
