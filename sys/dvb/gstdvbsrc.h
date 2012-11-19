@@ -4,6 +4,7 @@
 
 #include <gst/gst.h>
 #include <gst/base/gstpushsrc.h>
+#include <linux/dvb/frontend.h>
 
 G_BEGIN_DECLS
 
@@ -14,6 +15,7 @@ G_BEGIN_DECLS
   DVB_POL_ZERO
 } GstDvbSrcPol;
 
+#define FE_S2API -1
 
 #define IPACKS 2048
 #define TS_SIZE 188
@@ -78,6 +80,10 @@ struct _GstDvbSrc
   gboolean need_unlock;
 
   guint dvb_buffer_size;
+
+  /* user specified tuning properties and its sequence */
+  guint32 tvp_len;
+  struct dtv_property tvps[DTV_IOCTL_MAX_MSGS];
 };
 
 struct _GstDvbSrcClass
