@@ -1,5 +1,6 @@
 /*
  * mpegtsparse.c - 
+ * Copyright (C) 2009 0p1pp1
  * Copyright (C) 2007 Alessandro Decina
  * 
  * Authors:
@@ -881,7 +882,7 @@ mpegts_parse_is_psi (MpegTSParse * parse, MpegTSPacketizerPacket * packet)
     0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x5B, 0x5C,
     0x5D, 0x5E, 0x5F, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
     0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0x70, 0x71, 0x72, 0x73, 0x7E,
-    0x7F, TABLE_ID_UNSET
+    0x7F, 0x82, 0x84, TABLE_ID_UNSET
   };
   if (g_hash_table_lookup (parse->psi_pids,
           GINT_TO_POINTER ((gint) packet->pid)) != NULL)
@@ -1467,5 +1468,5 @@ gst_mpegtsparse_plugin_init (GstPlugin * plugin)
   gst_mpegtsdesc_init_debug ();
 
   return gst_element_register (plugin, "mpegtsparse",
-      GST_RANK_NONE, GST_TYPE_MPEGTS_PARSE);
+      GST_RANK_MARGINAL, GST_TYPE_MPEGTS_PARSE);
 }
