@@ -112,6 +112,13 @@ parse_channels_conf_from_file (const gchar * filename)
           g_hash_table_insert (params, g_strdup ("frequency"),
               g_strdup (fields[1]));
           parsed = TRUE;
+        } else if (numfields == 3) {
+          /* S2API */
+
+          g_hash_table_insert (params, g_strdup ("type"), g_strdup ("s2api"));
+          g_hash_table_insert (params, g_strdup ("s2api-tune-props"),
+              g_locale_to_utf8 (fields[1], -1, NULL, NULL, NULL));
+          parsed = TRUE;
         }
         if (parsed) {
           g_hash_table_insert (params, g_strdup ("sid"),
@@ -176,8 +183,9 @@ set_properties_for_channel (GObject * dvbbasebin, const gchar * channel_name)
       adapter = g_getenv ("GST_DVB_ADAPTER");
       if (adapter)
         g_object_set (dvbbasebin, "adapter", atoi (adapter), NULL);
-      g_object_set (dvbbasebin, "frequency",
-          atoi (g_hash_table_lookup (params, "frequency")), NULL);
+      if (g_hash_table_lookup (params, "frequency"))
+        g_object_set (dvbbasebin, "frequency",
+            atoi (g_hash_table_lookup (params, "frequency")), NULL);
       type = g_hash_table_lookup (params, "type");
       if (strcmp (type, "terrestrial") == 0) {
         gchar *val;
@@ -379,6 +387,13 @@ set_properties_for_channel (GObject * dvbbasebin, const gchar * channel_name)
           g_object_set (dvbbasebin, "modulation", 8, NULL);
         else
           ret = FALSE;
+      } else if (strcmp (type, "s2api") == 0) {
+        gchar *val;
+
+        ret = TRUE;
+
+        val = g_hash_table_lookup (params, "s2api-tune-props");
+        g_object_set (dvbbasebin, "s2api-tune-props", val, NULL);
       }
     }
     destroy_channels_hash (channels);
