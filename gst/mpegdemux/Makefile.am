@@ -16,10 +16,10 @@ libgstmpegdemux_la_SOURCES = \
 
 libgstmpegdemux_la_CFLAGS = \
 	$(GST_PLUGINS_BASE_CFLAGS) \
-	$(GST_BASE_CFLAGS) $(GST_CFLAGS)
+	$(GST_BASE_CFLAGS) $(GST_CFLAGS) $(DEMULTI2_CFLAGS)
 libgstmpegdemux_la_LIBADD = \
 	$(GST_PLUGINS_BASE_LIBS) -lgsttag-$(GST_MAJORMINOR) \
-	$(GST_BASE_LIBS) $(GST_LIBS)
+	$(GST_BASE_LIBS) $(GST_LIBS) $(DEMULTI2_LIBS)
 libgstmpegdemux_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
 libgstmpegdemux_la_LIBTOOLFLAGS = --tag=disable-static
 

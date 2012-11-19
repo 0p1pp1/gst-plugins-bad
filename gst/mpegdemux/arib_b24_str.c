@@ -35,7 +35,7 @@ static const gchar *trans_kata = trans_hira;
 
 static const gchar *trans_ext90[] = {
   /* 45-49 */
-  "10.", "11.", "12.", "[HV]", "[SD]", "[P]",
+  "10.", "11.", "12.", "[HV]", "[SD]",
   /* 50-54 */
   "[P]", "[W]", "[MV]", "[\xBC\xEA]", "[\xBB\xFA]",
   /* 55-59 */
@@ -442,10 +442,12 @@ aribstr_to_utf8 (const gchar * source, const guint len)
             || (!state.ss && !(source[i] & 0x80) && state.g[state.gl].mb > 1)) {
           prev = source[i];
           mode = MB_2ND;
+          state.ss = 0;
           continue;
         }
         /* convert source[i] / state  */
         append_arib_char (euc_str, &state, source[i], '\0');
+        state.ss = 0;
         break;
     }
   }

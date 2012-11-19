@@ -262,6 +262,34 @@ AM_CONDITIONAL(USE_EXIF, test "x$HAVE_EXIF" = "xyes")
 dnl Orc
 ORC_CHECK([0.4.11])
 
+dnl libyakisoba/PCSC is optional for mpegdemux, mpegtsdemux
+HAVE_PCSC=NO
+HAVE_YAKISOBA=NO
+AC_ARG_VAR([YAKISOBA_CFLAGS], [C compiler flags for libyakisoba])
+AC_ARG_VAR([YAKISOBA_LIBS], [linker flags to use libyakisoba])
+save_libs="$LIBS"
+LIBS="$YAKISOBA_LIBS $LIBS"
+AC_SEARCH_LIBS([bcas_decodeECM], [yakisoba])
+LIBS="$save_libs"
+if test x"$ac_cv_search_bcas_decodeECM" != x'no'; then
+  if test x"$ac_cv_search_bcas_decodeECM" != x'none required'; then
+      YAKISOBA_LIBS="$YAKISOBA_LIBS $ac_cv_search_bcas_decodeECM"
+  fi
+  HAVE_YAKISOBA=yes
+else
+  PKG_CHECK_MODULES(PCSC, libpcsclite, HAVE_PCSC=yes, HAVE_PCSC=no)
+fi
+AC_SUBST(YAKISOBA_LIBS)
+AC_SUBST(YAKISOBA_CFLAGS)
+AC_SUBST(PCSC_LIBS)
+AC_SUBST(PCSC_CFLAGS)
+if test "x$HAVE_YAKISOBA" = "xyes"; then
+  AC_DEFINE(HAVE_YAKISOBA, 1, [Define if you have libyakisoba])
+fi
+if test "x$HAVE_PCSC" = "xyes"; then
+  AC_DEFINE(HAVE_PCSC, 1, [Define if you have PCSC library])
+fi
+
 dnl set license and copyright notice
 GST_LICENSE="LGPL"
 AC_DEFINE_UNQUOTED(GST_LICENSE, "$GST_LICENSE", [GStreamer license])

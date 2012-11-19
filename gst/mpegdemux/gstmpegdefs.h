@@ -122,6 +122,11 @@
 #define PID_TYPE_NULL_PACKET                    6
 #define PID_TYPE_PRIVATE_SECTION                7
 
+#define PID_TYPE_NIT                            100
+#define PID_TYPE_SDT                            101
+#define PID_TYPE_EIT                            102
+#define PID_TYPE_ECM                            111
+
 /* Stream type assignments
  * 
  *   0x00    ITU-T | ISO/IEC Reserved

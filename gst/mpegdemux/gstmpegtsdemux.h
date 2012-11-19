@@ -62,6 +62,10 @@ G_BEGIN_DECLS
 #define MPEGTS_DVB_ASI_TS_PACKETSIZE 204
 #define MPEGTS_ATSC_TS_PACKETSIZE    208
 
+#define ECM_PID_NONSCRAMBLED         0x1FFF
+#define ECM_PID_UNDEFINED            MPEGTS_MAX_PID + 1
+
+
 #define IS_MPEGTS_SYNC(data) (((data)[0] == 0x47) && \
                                     (((data)[1] & 0x80) == 0x00) && \
                                     (((data)[3] & 0x10) == 0x10))
@@ -83,11 +87,16 @@ typedef struct _GstMpegTSPMTEntry GstMpegTSPMTEntry;
 typedef struct _GstMpegTSPMT GstMpegTSPMT;
 typedef struct _GstMpegTSPATEntry GstMpegTSPATEntry;
 typedef struct _GstMpegTSPAT GstMpegTSPAT;
+typedef struct _GstMpegTSCATEntry GstMpegTSCATEntry;
+typedef struct _GstMpegTSCAT GstMpegTSCAT;
+typedef struct _GstMpegTSECM GstMpegTSECM;
 typedef struct _GstMpegTSDemux GstMpegTSDemux;
 typedef struct _GstMpegTSDemuxClass GstMpegTSDemuxClass;
 
+
 struct _GstMpegTSPMTEntry {
   guint16           PID;
+  guint16           stream_ECM_PID;
 };
 
 struct _GstMpegTSPMT {
@@ -101,6 +110,8 @@ struct _GstMpegTSPMT {
   GstMPEGDescriptor * program_info;
 
   GArray            * entries;
+
+  guint16           program_ECM_PID;
 };
 
 struct _GstMpegTSPATEntry {
@@ -116,6 +127,28 @@ struct _GstMpegTSPAT  {
   guint8            last_section_number;
 
   GArray            * entries;
+};
+
+struct _GstMpegTSCATEntry {
+  guint16           emm_PID;
+};
+
+struct _GstMpegTSCAT {
+  guint8            version_number;
+  gboolean          current_next_indicator;
+  guint8            section_number;
+  guint8            last_section_number;
+
+  GArray            * entries;
+};
+
+struct _GstMpegTSECM {
+  guint16           cas_id;
+
+  guint8            version_number;
+  gboolean          current_next_indicator;
+  guint8            section_number;
+  guint8            last_section_number;
 };
 
 typedef enum _MpegTsStreamFlags {
@@ -150,9 +183,15 @@ struct _GstMpegTSStream {
   GstMpegTSPMT       PMT;
 
   /* for CA streams */
+  GstMpegTSCAT       CAT;
 
-  /* for PAT, PMT, CA and private streams */
+  /* for PAT, PMT, CA, ECM, EMM and private streams */
   GstSectionFilter  section_filter;
+
+
+  /* for ECM streams */
+  GstMpegTSECM      ECM;
+
 
   /* for PES streams */
   guint8            id;
@@ -172,7 +211,10 @@ struct _GstMpegTSStream {
   /* pid of PMT that this stream belongs to */
   guint16           PMT_pid;
   gboolean          discont;
+  /* pid of ECM that this stream belongs to */
+  guint16           ECM_pid;
 };
+
 
 struct _GstMpegTSDemux {
   GstElement        parent;
@@ -205,7 +247,6 @@ struct _GstMpegTSDemux {
    * at least one pad */
   gboolean          need_no_more_pads;
   gint              packetsize;
-  gboolean          m2ts_mode;
   /* clocking */
   GstClock          * clock;
   GstClockTime      clock_base;
@@ -236,6 +277,10 @@ struct _GstMpegTSDemux {
   gint              pending_pads;
 
   gboolean          tried_adding_pads;
+
+  /* bcas descrambling */
+  gboolean          bcas_descramble;
+  void              * dm2_handle;
 };
 
 struct _GstMpegTSDemuxClass {
