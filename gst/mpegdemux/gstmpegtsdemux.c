@@ -1496,7 +1496,7 @@ gst_mpegts_demux_data_cb (GstPESFilter * filter, gboolean first,
     time += demux->in_gap;
   }
 
-  GST_DEBUG_OBJECT (demux, "setting PTS to (%" G_GUINT64_FORMAT ") time: %"
+  GST_DEBUG_OBJECT (demux, "setting PTS (%" G_GUINT64_FORMAT ") to time: %"
       GST_TIME_FORMAT " on buffer %p first buffer: %d base_time: %"
       GST_TIME_FORMAT, pts, GST_TIME_ARGS (time + demux->in_gap),
       buffer, first, GST_TIME_ARGS (stream->base_time));
