@@ -89,6 +89,13 @@ extern gint8 faacDecInit2 (faacDecHandle, guint8 *, guint32,
 GST_DEBUG_CATEGORY_STATIC (faad_debug);
 #define GST_CAT_DEFAULT faad_debug
 
+enum
+{
+  PROP_0,
+  PROP_IS_DMONO,
+  PROP_DMONO_MODE,
+};
+
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
@@ -152,10 +159,38 @@ static GstFlowReturn gst_faad_handle_frame (GstAudioDecoder * dec,
     GstBuffer * buffer);
 static void gst_faad_flush (GstAudioDecoder * dec, gboolean hard);
 
+static void gst_faad_get_property (GObject * object, guint prop_id,
+    GValue * value, GParamSpec * pspec);
+static void gst_faad_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec);
+
 static gboolean gst_faad_open_decoder (GstFaad * faad);
 static void gst_faad_close_decoder (GstFaad * faad);
 
 GST_BOILERPLATE (GstFaad, gst_faad, GstAudioDecoder, GST_TYPE_AUDIO_DECODER);
+
+#define GST_TYPE_FAAD_DMONO_MODE \
+  (gst_faad_dmono_mode_get_type ())
+
+static GType
+gst_faad_dmono_mode_get_type (void)
+{
+  static GType gst_faad_dmono_mode_type = 0;
+
+  if (!gst_faad_dmono_mode_type) {
+    static const GEnumValue mode_values[] = {
+      {GST_FAAD_DUALMONO_MAIN, "Decode main/L channel", "main"},
+      {GST_FAAD_DUALMONO_SUB, "Decode sub/R channel", "sub"},
+      {GST_FAAD_DUALMONO_BOTH, "Decode both channels", "both"},
+      {0, NULL, NULL},
+    };
+
+    gst_faad_dmono_mode_type =
+        g_enum_register_static ("GstFaadDMonoMode", mode_values);
+  }
+
+  return gst_faad_dmono_mode_type;
+}
 
 static void
 gst_faad_base_init (gpointer klass)
@@ -180,6 +215,19 @@ gst_faad_class_init (GstFaadClass * klass)
   GstAudioDecoderClass *base_class = GST_AUDIO_DECODER_CLASS (klass);
 
   parent_class = g_type_class_peek_parent (klass);
+  gobject_class->set_property = gst_faad_set_property;
+  gobject_class->get_property = gst_faad_get_property;
+
+  g_object_class_install_property (gobject_class, PROP_IS_DMONO,
+      g_param_spec_boolean ("is-dualmono", "Shows if dual-mono or not",
+          "Indicates the last decoded frame was dual-mono or not.",
+          FALSE, G_PARAM_READABLE));
+
+  g_object_class_install_property (gobject_class, PROP_DMONO_MODE,
+      g_param_spec_enum ("dualmono-mode", "Dual mono decode mode",
+          "How to decode a dual mono audio stream. ",
+          GST_TYPE_FAAD_DMONO_MODE, GST_FAAD_DUALMONO_MAIN,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   base_class->start = GST_DEBUG_FUNCPTR (gst_faad_start);
   base_class->stop = GST_DEBUG_FUNCPTR (gst_faad_stop);
@@ -196,10 +244,47 @@ gst_faad_init (GstFaad * faad, GstFaadClass * klass)
 }
 
 static void
+gst_faad_get_property (GObject * object, guint prop_id,
+    GValue * value, GParamSpec * pspec)
+{
+  GstFaad *faad = GST_FAAD (object);
+
+  switch (prop_id) {
+    case PROP_IS_DMONO:
+      g_value_set_boolean (value, faad->is_dualmono);
+      break;
+    case PROP_DMONO_MODE:
+      g_value_set_enum (value, faad->dualmono_mode);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+static void
+gst_faad_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  GstFaad *faad = GST_FAAD (object);
+
+  switch (prop_id) {
+    case PROP_DMONO_MODE:
+      faad->dualmono_mode = g_value_get_enum (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+static void
 gst_faad_reset_stream_state (GstFaad * faad)
 {
   if (faad->handle)
     faacDecPostSeekReset (faad->handle, 0);
+
+  faad->is_dualmono = FALSE;
 }
 
 static void
@@ -782,6 +867,7 @@ init:
          where the nch in ADTS header is set to 0 and PCE inserted.
          used for dual-mono(1+1ch), 2+1ch, 2+2ch,
          but only dual-mono is encouraged. see ARIB-STD B32  */
+      faad->is_dualmono = (fr_ch == 0);
       if (fr_ch == 0)
         fr_ch = 2;
 
@@ -832,7 +918,21 @@ init:
       if (ret != GST_FLOW_OK)
         goto out;
 
-      memcpy (GST_BUFFER_DATA (outbuf), out, GST_BUFFER_SIZE (outbuf));
+      if (faad->is_dualmono && faad->dualmono_mode != GST_FAAD_DUALMONO_BOTH) {
+        guint8 *dst = GST_BUFFER_DATA (outbuf);
+        guint8 *src = out;
+        guint i;
+
+        for (i = 0; i < bufsize; i += faad->bps * 2)
+          if (faad->dualmono_mode == GST_FAAD_DUALMONO_MAIN) {
+            memcpy (dst + i, src + i, faad->bps);
+            memcpy (dst + i + faad->bps, src + i, faad->bps);
+          } else {              // (faad->dualmono_mode == GST_FAAD_DUALMONO_SUB)
+            memcpy (dst + i, src + i + faad->bps, faad->bps);
+            memcpy (dst + i + faad->bps, src + i + faad->bps, faad->bps);
+          }
+      } else
+        memcpy (GST_BUFFER_DATA (outbuf), out, GST_BUFFER_SIZE (outbuf));
 
       ret = gst_audio_decoder_finish_frame (dec, outbuf, 1);
     }

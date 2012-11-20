@@ -42,6 +42,12 @@ G_BEGIN_DECLS
 #define GST_IS_FAAD_CLASS(klass) \
   (G_TYPE_CHECK_CLASS_TYPE ((klass), GST_TYPE_FAAD))
 
+typedef enum {
+  GST_FAAD_DUALMONO_MAIN,
+  GST_FAAD_DUALMONO_SUB,
+  GST_FAAD_DUALMONO_BOTH,
+} GstFaadDMonoMode;
+
 typedef struct _GstFaad {
   GstAudioDecoder element;
 
@@ -60,6 +66,8 @@ typedef struct _GstFaad {
 
   gboolean packetised; /* We must differentiate between raw and packetised streams */
 
+  gboolean is_dualmono;
+  GstFaadDMonoMode dualmono_mode; /* how to decode dual mono streams */
 } GstFaad;
 
 typedef struct _GstFaadClass {
