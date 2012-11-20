@@ -285,6 +285,8 @@ struct _GstMpegTSDemux {
 
   gboolean          tried_adding_pads;
 
+  gboolean          in_flushing;
+
   /* bcas descrambling */
   gboolean          bcas_descramble;
   void              * dm2_handle;

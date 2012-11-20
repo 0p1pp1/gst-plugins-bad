@@ -3315,6 +3315,7 @@ gst_mpegts_demux_sink_event (GstPad * pad, GstEvent * event)
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_FLUSH_START:
       res = gst_mpegts_demux_send_event (demux, event);
+      demux->in_flushing = TRUE;
       break;
     case GST_EVENT_FLUSH_STOP:
       gst_adapter_clear (demux->adapter);
@@ -3323,6 +3324,7 @@ gst_mpegts_demux_sink_event (GstPad * pad, GstEvent * event)
       demux->in_gap = GST_CLOCK_TIME_NONE;
       demux->first_buf_ts = GST_CLOCK_TIME_NONE;
       demux->last_buf_ts = GST_CLOCK_TIME_NONE;
+      demux->in_flushing = FALSE;
       break;
     case GST_EVENT_EOS:
       gst_mpegts_demux_flush (demux, FALSE);
@@ -3702,6 +3704,11 @@ gst_mpegts_demux_chain (GstPad * pad, GstBuffer * buffer)
       GST_DEBUG_OBJECT (demux, "First timestamp is %" GST_TIME_FORMAT,
           GST_TIME_ARGS (demux->first_buf_ts));
     }
+  }
+
+  if (demux->in_flushing) {
+    ret = GST_FLOW_WRONG_STATE;
+    goto done;
   }
 
   if (GST_BUFFER_IS_DISCONT (buffer)) {
