@@ -1603,6 +1603,39 @@ mpegts_packetizer_parse_eit (MpegTSPacketizer * packetizer,
       hour = ((utc_ptr[0] & 0xF0) >> 4) * 10 + (utc_ptr[0] & 0x0F);
       minute = ((utc_ptr[1] & 0xF0) >> 4) * 10 + (utc_ptr[1] & 0x0F);
       second = ((utc_ptr[2] & 0xF0) >> 4) * 10 + (utc_ptr[2] & 0x0F);
+
+      /* hack for ISDB-T/S */
+      /* DVB assumes the time to be UTC, but ISDB-T/S assumes JST. */
+      /* adjust to UTC here */
+#define ISDB 1
+#if ISDB
+      if (hour < 9) {
+        hour += 15;
+        day--;
+      } else
+        hour -= 9;
+
+      if (day == 0)
+        switch (--month) {
+          case 0:
+            day = 31;
+            month = 12;
+            year--;
+            break;
+          case 1:
+          case 3:
+          case 5:
+          case 7:
+          case 8:
+          case 10:
+            day = 31;
+            break;
+          case 2:
+            day = !(year % 4) && ((year % 100) || !(year % 400)) ? 29 : 28;
+          default:
+            day = 30;
+        }
+#endif
     }
 
     duration = (((duration_ptr[0] & 0xF0) >> 4) * 10 +
