@@ -622,6 +622,9 @@ gst_mpegts_stream_is_audio (GstMpegTSStream * stream)
     case ST_AUDIO_MPEG2:
     case ST_AUDIO_AAC_ADTS:
     case ST_AUDIO_AAC_LOAS:
+    case ST_PS_AUDIO_AC3:
+    case ST_PS_AUDIO_DTS:
+    case ST_PS_AUDIO_LPCM:
       return TRUE;
   }
 
@@ -1812,6 +1815,7 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
   guint8 current_next_indicator;
   guint16 program_number;
   guint8 *ca_desc;
+  gboolean valid_program = FALSE;
 
   demux = stream->demux;
 
@@ -1845,11 +1849,6 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
 
   if (demux->program_number != -1 && demux->program_number != program_number) {
     goto wrong_program_number;
-  }
-  if (demux->program_number == -1) {
-    GST_INFO_OBJECT (demux, "No program number set, so using first parsed PMT"
-        "'s program number: %d", program_number);
-    demux->program_number = program_number;
   }
 
   if (version_number == PMT->version_number)
@@ -2050,6 +2049,11 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
     GST_DEBUG_OBJECT (demux,
         "  PMT stream_type: %02x, PID: 0x%04x (ES_info_len %d, ECM:0x%04x)",
         stream_type, entry.PID, ES_info_length, entry.stream_ECM_PID);
+    if (!valid_program &&
+        (ES_stream->flags & MPEGTS_STREAM_FLAG_IS_VIDEO ||
+            gst_mpegts_stream_is_audio (ES_stream))) {
+      valid_program = TRUE;
+    }
 
     g_array_append_val (PMT->entries, entry);
 
@@ -2060,8 +2064,13 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
 
   if (demux->program_number == -1) {
     /* No program specified, take the first PMT */
-    if (demux->current_PMT == 0 || demux->current_PMT == stream->PID)
+    if ((demux->current_PMT == 0 || demux->current_PMT == stream->PID) &&
+        valid_program) {
       gst_mpegts_activate_pmt (demux, stream);
+      GST_INFO_OBJECT (demux, "No program number set, so using first parsed PMT"
+          "'s program number: %d", program_number);
+      demux->program_number = program_number;
+    }
   } else {
     /* Program specified, activate this if it matches */
     if (demux->program_number == PMT->program_number)
