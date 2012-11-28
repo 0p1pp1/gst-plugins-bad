@@ -168,14 +168,6 @@ struct _GstMpegTSStream {
   guint16           PID;
   guint8            PID_type;
 
-  /* adaptation_field data */
-  guint64           last_PCR;
-  guint64           base_PCR;
-  guint64           last_OPCR;
-  guint64           last_PCR_difference;
-  gboolean          discont_PCR;
-  GstClockTimeDiff  discont_difference;
-
   /* for PAT streams */
   GstMpegTSPAT       PAT;
 
@@ -192,6 +184,21 @@ struct _GstMpegTSStream {
   /* for ECM streams */
   GstMpegTSECM      ECM;
 
+  /* for PCR streams & per-program info */
+  guint64           first_pcr;
+  gint64            pcr_adjust;    //compensation for PCR wrap-arounds/discont
+  guint64           last_pcr;      // current/latest pcr, incl. wrap
+  guint64           last_pcr_delta;
+  guint64           bitrate_base_pcr;
+  guint64           base_pcr_offset; // byte_offset of hte bitrate_base_pcr
+  /* for pull mode */
+  guint64           tail_pcr;
+  guint64           first_pts;
+  guint64           tail_pts;
+  /* bitrate: estimated bitrate (based on pcr_delta and last_pcr_offset) */
+  guint64           bitrate;
+  GstSegment        src_segment;
+
 
   /* for PES streams */
   guint8            id;
@@ -205,12 +212,16 @@ struct _GstMpegTSStream {
   GstPad            * pad;
   GstFlowReturn     last_ret;
   GstMPEGDescriptor *ES_info;
-  /* needed because 33bit mpeg timestamps wrap around every (approx) 26.5 hrs */
-  GstClockTimeDiff  base_time;
-  GstClockTime      last_time;
+
+  guint64           last_pts;
+  GstClockTime      segment_thresh;
+  GstClockTime      last_segment_start;
+
   /* pid of PMT that this stream belongs to */
   guint16           PMT_pid;
   gboolean          discont;
+  gboolean          need_segment;
+
   /* pid of ECM that this stream belongs to */
   guint16           ECM_pid;
   gint              tag; /* component tag. used in vid/aid filtering */
@@ -234,8 +245,6 @@ struct _GstMpegTSDemux {
 
   /* Array of MPEGTS_MAX_PID + 1 stream entries */
   GstMpegTSStream    **  streams;
-  /* Array to perform pmts checks at gst_mpegts_demux_parse_adaptation_field */
-  gboolean          pmts_checked[MPEGTS_MAX_PID + 1];
   
   /* Array of Elementary Stream pids for ts with PMT */
   guint16           * elementary_pids;
@@ -243,17 +252,12 @@ struct _GstMpegTSDemux {
 
   /* Program number to use */
   gint              program_number;
-  /*
-   * specify the vid'th video stream in PMT to be the src.
-   *  based on the "component tag" in PMT
-   *  -1:none,all streams become src's   0:default stream
-   */ 
-  gint              vid;
-  gint              aid;
+
   /* indicates that we need to close our pad group, because we've added
    * at least one pad */
   gboolean          need_no_more_pads;
   gint              packetsize;
+  gboolean          m2ts_mode;
   /* clocking */
   GstClock          * clock;
   GstClockTime      clock_base;
@@ -266,6 +270,16 @@ struct _GstMpegTSDemux {
 
   /* Two PCRs observations to calculate bitrate */
   guint64            pcr[2];
+
+  /* video/audio stream number to use */
+  gint              vid;
+  gint              aid;
+
+  /* in pull-mode or not */
+  gboolean          random_access;
+
+  // current byte-offset in the input stream
+  guint64           byte_offset;
 
   /* Cached duration estimation */
   GstClockTime      cache_duration;
