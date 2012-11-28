@@ -213,8 +213,8 @@ static void
 gst_faad_class_init (GstFaadClass * klass)
 {
   GstAudioDecoderClass *base_class = GST_AUDIO_DECODER_CLASS (klass);
+  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
-  parent_class = g_type_class_peek_parent (klass);
   gobject_class->set_property = gst_faad_set_property;
   gobject_class->get_property = gst_faad_get_property;
 
@@ -292,7 +292,6 @@ gst_faad_reset (GstFaad * faad)
 {
   faad->samplerate = -1;
   faad->channels = -1;
-  faad->fr_channels = 0;
   faad->init = FALSE;
   faad->packetised = FALSE;
   g_free (faad->channel_positions);
@@ -418,6 +417,9 @@ gst_faad_set_format (GstAudioDecoder * dec, GstCaps * caps)
     GST_DEBUG_OBJECT (faad, "codec_data init: channels=%u, rate=%u", channels,
         (guint32) samplerate);
 
+    if ((cdata[1] & 0x78) == 0 && channels == 2)
+      faad->is_dualmono = TRUE;
+
     /* not updating these here, so they are updated in the
      * chain function, and new caps are created etc. */
     faad->samplerate = 0;
@@ -439,12 +441,17 @@ gst_faad_set_format (GstAudioDecoder * dec, GstCaps * caps)
   if (faad->packetised && !faad->init) {
     gint rate, channels;
 
+    gst_structure_get_boolean (str, "dualmono", &faad->is_dualmono);
+
     if (gst_structure_get_int (str, "rate", &rate) &&
         gst_structure_get_int (str, "channels", &channels)) {
       gint rate_idx, profile;
 
       profile = 3;              /* 0=MAIN, 1=LC, 2=SSR, 3=LTP */
       rate_idx = aac_rate_idx (rate);
+
+      if (faad->is_dualmono && channels == 0)
+        channels = 2;
 
       faad->fake_codec_data[0] = ((profile + 1) << 3) | ((rate_idx & 0xE) >> 1);
       faad->fake_codec_data[1] = ((rate_idx & 0x1) << 7) | (channels << 3);
@@ -668,8 +675,11 @@ gst_faad_sync (GstFaad * faad, const guint8 * data, guint size, gboolean next,
       len = ((data[n + 3] & 0x03) << 11) |
           (data[n + 4] << 3) | ((data[n + 5] & 0xe0) >> 5);
       // rescue un-labled framed input 
-      if (!n && n + len + 2 == size)
-        return TRUE;
+      if (!n && n + len == size) {
+        ret = TRUE;
+        break;
+      }
+
       if (n + len + 2 >= size) {
         GST_LOG_OBJECT (faad, "Frame size %d, next frame is not within reach",
             len);
@@ -823,6 +833,15 @@ init:
   do {
 
     if (!faad->packetised) {
+      guint fr_ch;
+
+      fr_ch = (input_data[2] & 0x01) << 2 | (input_data[3] >> 6);
+      /* adhock work-around for streams with ISDB-T/S specific audio config,
+         where the nch in ADTS header is set to 0 and PCE inserted.
+         used for dual-mono(1+1ch), 2+1ch, 2+2ch,
+         but only dual-mono is encouraged. see ARIB-STD B32  */
+      faad->is_dualmono = (fr_ch == 0);
+
       /* faad only really parses ADTS header at Init time, not when decoding,
        * so monitor for changes and kick faad when needed */
       // FIXME: 1) what if ADIF header comes? 2) should be >> 6
@@ -833,61 +852,6 @@ init:
         gst_faad_close_decoder (faad);
         faad->init = FALSE;
         goto init;
-      }
-    }
-
-    /* sync */
-    while (input_size > FAAD_MIN_STREAMSIZE) {
-      if (looks_like_valid_header (input_data, input_size))
-        break;
-      input_data++;
-      input_size--;
-    }
-    if (input_size <= FAAD_MIN_STREAMSIZE) {
-      GST_DEBUG_OBJECT (faad, "found some garbage data.");
-      break;
-    }
-
-    if ((GST_READ_UINT16_BE (input_data) & 0xFFF6) == 0xFFF0) {
-      guint fr_ch;
-      static const guint32 sample_rate[] = {
-        96000, 88200, 64000, 48000, 44100, 32000,
-        24000, 22050, 16000, 12000, 11025, 8000, 0, 0, 0, 0
-      };
-#if FAAD2_MINOR_VERSION >= 7
-      unsigned long rate;
-#else
-      guint32 rate;
-#endif
-      guint8 ch;
-      /* guint profile; */
-
-      fr_ch = (input_data[2] & 0x01) << 2 | (input_data[3] >> 6);
-      /* adhock work-around for streams with ISDB-T/S specific audio config,
-         where the nch in ADTS header is set to 0 and PCE inserted.
-         used for dual-mono(1+1ch), 2+1ch, 2+2ch,
-         but only dual-mono is encouraged. see ARIB-STD B32  */
-      faad->is_dualmono = (fr_ch == 0);
-      if (fr_ch == 0)
-        fr_ch = 2;
-
-      rate = sample_rate[(input_data[2] & 0x3C) >> 2];
-      /* profile = (input_data[2] & 0xC0) >> 6; */
-
-      if (faad->fr_channels != fr_ch || faad->samplerate != rate) {
-        GST_INFO_OBJECT (faad, "Changing configuration. rate=%u,channels=%u",
-            rate, fr_ch);
-        faacDecClose (faad->handle);
-        faad->init = FALSE;
-        if (!gst_faad_open_decoder (faad) ||
-            faacDecInit (faad->handle, input_data, input_size, &rate, &ch) < 0)
-          goto out;
-
-        faad->init = TRUE;
-        faad->fr_channels = fr_ch;
-        faad->samplerate = rate;
-        /* make sure we create new caps below */
-        faad->channels = 0;
       }
     }
 
@@ -921,6 +885,7 @@ init:
       if (faad->is_dualmono && faad->dualmono_mode != GST_FAAD_DUALMONO_BOTH) {
         guint8 *dst = GST_BUFFER_DATA (outbuf);
         guint8 *src = out;
+        guint bufsize = GST_BUFFER_SIZE (outbuf);
         guint i;
 
         for (i = 0; i < bufsize; i += faad->bps * 2)

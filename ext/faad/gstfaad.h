@@ -53,7 +53,6 @@ typedef struct _GstFaad {
 
   guint      samplerate; /* sample rate of the last MPEG frame    */
   guint      channels;   /* number of channels of the last frame  */
-  guint      fr_channels;/* number of input channels of the last frame */
   guint      bps;        /* bytes per sample                      */
   guchar    *channel_positions;
 
