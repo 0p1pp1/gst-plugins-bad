@@ -38,6 +38,8 @@ static GQuark QUARK_PROGRAMS;
 
 static GQuark QUARK_PMT;
 static GQuark QUARK_PCR_PID;
+static GQuark QUARK_CA_SYSTEM;
+static GQuark QUARK_CA_PID;
 static GQuark QUARK_VERSION_NUMBER;
 static GQuark QUARK_DESCRIPTORS;
 static GQuark QUARK_STREAM_TYPE;
@@ -293,6 +295,7 @@ mpegts_packetizer_parse_packet (MpegTSPacketizer2 * packetizer,
 
   packet->adaptation_field_control = (*data >> 4) & 0x03;
   packet->continuity_counter = *data & 0x0F;
+  packet->ca_flags = *data >> 6;
   data += 1;
 
   packet->data = data;
@@ -563,6 +566,9 @@ mpegts_packetizer_parse_pmt (MpegTSPacketizer2 * packetizer,
       QUARK_VERSION_NUMBER, G_TYPE_UINT, section->version_number, NULL);
 
   if (program_info_length) {
+    GstMPEGDescriptor *desc;
+    guint8 *desc_data;
+
     /* check that the buffer is large enough to contain at least
      * program_info_length bytes + CRC */
     if (data + program_info_length + 4 > end) {
@@ -570,6 +576,16 @@ mpegts_packetizer_parse_pmt (MpegTSPacketizer2 * packetizer,
           section->pid, program_info_length, (gint) (end - data));
       goto error;
     }
+
+    desc = gst_mpeg_descriptor_parse (data, program_info_length);
+    if (desc != NULL) {
+      desc_data = gst_mpeg_descriptor_find (desc, DESC_CA);
+      if (desc_data != NULL)
+        gst_structure_id_set (pmt,
+            QUARK_CA_SYSTEM, G_TYPE_UINT, DESC_CA_system_ID (desc_data),
+            QUARK_CA_PID, G_TYPE_UINT, DESC_CA_PID (desc_data), NULL);
+    }
+    gst_mpeg_descriptor_free (desc);
 
     descriptors = g_value_array_new (0);
     if (!mpegts_packetizer_parse_descriptors (packetizer,
@@ -678,6 +694,12 @@ mpegts_packetizer_parse_pmt (MpegTSPacketizer2 * packetizer,
           g_free (lang_code);
         }
 
+        desc_data = gst_mpeg_descriptor_find (desc, DESC_CA);
+        if (desc_data) {
+          gst_structure_id_set (stream_info,
+              QUARK_CA_SYSTEM, G_TYPE_UINT, DESC_CA_system_ID (desc_data),
+              QUARK_CA_PID, G_TYPE_UINT, DESC_CA_PID (desc_data), NULL);
+        }
         gst_mpeg_descriptor_free (desc);
       }
 
@@ -2116,6 +2138,44 @@ error:
   return NULL;
 }
 
+GstStructure *
+mpegts_packetizer_parse_ecm (MpegTSPacketizer2 * packetizer,
+    MpegTSPacketizerSection * section)
+{
+  GstStructure *ecm = NULL;
+  guint8 *data, *end;
+  guint body_len;
+  GByteArray *body;
+
+  data = GST_BUFFER_DATA (section->buffer);
+  end = data + GST_BUFFER_SIZE (section->buffer);
+
+  if (section->section_length + 3 < 42 || section->section_length + 3 > 183) {
+    GST_WARNING ("PID %d too short ECM section. length %d",
+        section->pid, section->section_length);
+    goto error;
+  }
+
+  if (data + 3 + section->section_length != end) {
+    GST_WARNING ("PID %d invalid ECM section length %d expected %d",
+        section->pid, section->section_length, (gint) (end - data));
+    goto error;
+  }
+
+  data += 8;
+  body_len = section->section_length + 3 - 8 - 4;
+  body = g_byte_array_sized_new (body_len);
+  g_byte_array_append (body, data, body_len);
+  ecm = gst_structure_new ("ecm", "body", G_TYPE_BYTE_ARRAY, body, NULL);
+  return ecm;
+
+error:
+  if (ecm)
+    gst_structure_free (ecm);
+
+  return NULL;
+}
+
 void
 mpegts_packetizer_clear (MpegTSPacketizer2 * packetizer)
 {
@@ -2621,6 +2681,8 @@ _init_local (void)
 
   QUARK_PMT = g_quark_from_string ("pmt");
   QUARK_PCR_PID = g_quark_from_string ("pcr-pid");
+  QUARK_CA_SYSTEM = g_quark_from_string ("ca-system-id");
+  QUARK_CA_PID = g_quark_from_string ("ca-pid");
   QUARK_VERSION_NUMBER = g_quark_from_string ("version-number");
   QUARK_DESCRIPTORS = g_quark_from_string ("descriptors");
   QUARK_STREAM_TYPE = g_quark_from_string ("stream-type");

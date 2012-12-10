@@ -86,6 +86,13 @@ struct _GstTSDemux
   TSPcrOffset last_pcr;
   TSPcrOffset cur_pcr;
   TSPcrOffset index_pcr;
+
+  /* bcas descrambling */
+  gboolean          bcas_descramble;
+  void *dm2_handle;
+
+  /* use default pads that are stable/unchanged through PMT switches */
+  gboolean          default_pads;
 };
 
 struct _GstTSDemuxClass

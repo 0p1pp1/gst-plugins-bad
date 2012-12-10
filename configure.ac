@@ -262,33 +262,46 @@ AM_CONDITIONAL(USE_EXIF, test "x$HAVE_EXIF" = "xyes")
 dnl Orc
 ORC_CHECK([0.4.11])
 
-dnl libyakisoba/PCSC is optional for mpegdemux, mpegtsdemux
-HAVE_PCSC=NO
-HAVE_YAKISOBA=NO
-AC_ARG_VAR([YAKISOBA_CFLAGS], [C compiler flags for libyakisoba])
-AC_ARG_VAR([YAKISOBA_LIBS], [linker flags to use libyakisoba])
-save_libs="$LIBS"
-LIBS="$YAKISOBA_LIBS $LIBS"
-AC_SEARCH_LIBS([bcas_decodeECM], [yakisoba])
-LIBS="$save_libs"
-if test x"$ac_cv_search_bcas_decodeECM" != x'no'; then
-  if test x"$ac_cv_search_bcas_decodeECM" != x'none required'; then
-      YAKISOBA_LIBS="$YAKISOBA_LIBS $ac_cv_search_bcas_decodeECM"
-  fi
-  HAVE_YAKISOBA=yes
-else
-  PKG_CHECK_MODULES(PCSC, libpcsclite, HAVE_PCSC=yes, HAVE_PCSC=no)
-fi
-AC_SUBST(YAKISOBA_LIBS)
-AC_SUBST(YAKISOBA_CFLAGS)
-AC_SUBST(PCSC_LIBS)
-AC_SUBST(PCSC_CFLAGS)
-if test "x$HAVE_YAKISOBA" = "xyes"; then
-  AC_DEFINE(HAVE_YAKISOBA, 1, [Define if you have libyakisoba])
-fi
-if test "x$HAVE_PCSC" = "xyes"; then
-  AC_DEFINE(HAVE_PCSC, 1, [Define if you have PCSC library])
-fi
+dnl libdemulti2 is optional for tsdemux
+CONFIG_DEMULTI2=NO
+AC_ARG_ENABLE([bcas],
+  [AS_HELP_STRING([--disable-bcas],
+    [Disables BCAS descrambling by libdemulti2. @<:@default=auto@:>@])],
+  [],
+  [enable_bcas=auto])
+AC_ARG_VAR([DEMULTI2_CFLAGS], [C compiler flags for libdemulti2])
+AC_ARG_VAR([DEMULTI2_LIBS], [linker flags to use libdemulti2])
+
+AS_IF([test "x$enable_bcas" != xno],
+  [saved_cflags="$CFLAGS"
+   CFLAGS="$CPPFLAGS $DEMULTI2_CFLAGS"
+   AC_CHECK_HEADER([demulti2.h], [],
+     [AS_IF([test "x$enable_bcas" = xyes],
+        [AC_MSG_ERROR([Failed to find the required header demulti2.h. dnl
+Maybe you should add -I flag to the env var DEMULTI2_CFLAGS.])],
+        [enable_bcas=no])])
+   CFLAGS="$saved_cflags"
+  ])
+
+AS_IF([test "x$enable_bcas" != xno],
+  [saved_libs="$LIBS"
+   LIBS="$DEMULTI2_LIBS $LIBS"
+   AC_SEARCH_LIBS([demulti2_open], [demulti2], [], [], [-ldl])
+   LIBS="$saved_libs"
+   AS_IF([test x"$ac_cv_search_demulti2_open" != x'no'],
+     [AS_IF([test x"$ac_cv_search_demulti2_open" != x'none required'],
+        [DEMULTI2_LIBS="$DEMULTI2_LIBS $ac_cv_search_demulti2_open -dl"])
+      AC_DEFINE([CONFIG_DEMULTI2], [1], [Define if you use libdemulti2])
+      enable_bcas=yes
+     ],
+     [AS_IF([test "x$enable_bcas" = xyes],
+        [AC_MSG_ERROR([Failed to find the required library libdemulti2. dnl
+Maybe you should add -L flag to the env var DEMULTI2_LIBS.])],
+        [enable_bcas=no])
+     ])
+  ])
+AC_MSG_CHECKING([bcas])
+AC_MSG_RESULT([$enable_bcas])
 
 dnl set license and copyright notice
 GST_LICENSE="LGPL"

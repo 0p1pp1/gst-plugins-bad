@@ -50,6 +50,10 @@
  * See TODO for explanations on improvements needed
  */
 
+#if CONFIG_DEMULTI2
+#include <demulti2.h>
+#endif
+
 /* latency in mseconds */
 #define TS_LATENCY 700
 
@@ -215,6 +219,7 @@ enum
   PROP_APID,
   PROP_VPID,
   PROP_SPID,
+  PROP_BCAS_DESCRAMBLE,
   /* FILL ME */
 };
 
@@ -244,11 +249,17 @@ static GstFlowReturn find_pcr_packet (MpegTSBase * base, guint64 offset,
     gint64 length, TSPcrOffset * pcroffset);
 static GstFlowReturn find_timestamps (MpegTSBase * base, guint64 initoff,
     guint64 * offset);
+static void gst_ts_demux_packet_scrambled (MpegTSBase * base,
+    MpegTSPacketizerPacket * packet);
+static void gst_ts_demux_ecm_received (MpegTSBase * base, guint16 ecm_pid,
+    guint8 * data, guint len);
 static void gst_ts_demux_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec);
 static void gst_ts_demux_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec);
 static void gst_ts_demux_finalize (GObject * object);
+static GstStateChangeReturn
+gst_ts_demux_change_state (GstElement * element, GstStateChange transition);
 static GstFlowReturn
 process_pcr (MpegTSBase * base, guint64 initoff, TSPcrOffset * pcroffset,
     guint numpcr, gboolean isinitial);
@@ -291,9 +302,10 @@ gst_ts_demux_base_init (gpointer klass)
       &private_template);
 
   gst_element_class_set_details_simple (element_class,
-      "MPEG transport stream demuxer",
+      "MPEG TS demuxer with BCAS descrambling",
       "Codec/Demuxer",
-      "Demuxes MPEG2 transport streams",
+      "Demuxes and descrambles MPEG2 transport streams",
+      "0p1pp1\n"
       "Zaheer Abbas Merali <zaheerabbas at merali dot org>\n"
       "Edward Hervey <edward.hervey@collabora.co.uk>");
 }
@@ -334,6 +346,13 @@ gst_ts_demux_class_init (GstTSDemuxClass * klass)
           "PID of subpicture stream to demux (-1 to ignore)", -1, 8191,
           -1, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_BCAS_DESCRAMBLE,
+      g_param_spec_boolean ("bcas_descrambling", "Software BCAS Descrambling",
+          "Defines if trying to descramble the BCAS scrambled input. "
+          "BCAS is deployed in Japanese DTV.", TRUE, G_PARAM_READWRITE));
+
+
+  GST_ELEMENT_CLASS (klass)->change_state = gst_ts_demux_change_state;
 
   ts_class = GST_MPEGTS_BASE_CLASS (klass);
   ts_class->reset = GST_DEBUG_FUNCPTR (gst_ts_demux_reset);
@@ -346,6 +365,11 @@ gst_ts_demux_class_init (GstTSDemuxClass * klass)
   ts_class->find_timestamps = GST_DEBUG_FUNCPTR (find_timestamps);
   ts_class->seek = GST_DEBUG_FUNCPTR (gst_ts_demux_do_seek);
   ts_class->flush = GST_DEBUG_FUNCPTR (gst_ts_demux_flush);
+#if CONFIG_DEMULTI2
+  ts_class->packet_scrambled =
+      GST_DEBUG_FUNCPTR (gst_ts_demux_packet_scrambled);
+  ts_class->ecm_received = GST_DEBUG_FUNCPTR (gst_ts_demux_ecm_received);
+#endif
 }
 
 static void
@@ -354,6 +378,11 @@ gst_ts_demux_init (GstTSDemux * demux, GstTSDemuxClass * klass)
   demux->need_newsegment = TRUE;
   demux->program_number = -1;
   demux->apid = demux->vpid = demux->spid = -1;
+#if CONFIG_DEMULTI2
+  demux->bcas_descramble = TRUE;
+#else
+  demux->bcas_descramble = FALSE;
+#endif
   demux->duration = GST_CLOCK_TIME_NONE;
   GST_MPEGTS_BASE (demux)->stream_size = sizeof (TSDemuxStream);
   gst_segment_init (&demux->segment, GST_FORMAT_TIME);
@@ -401,6 +430,10 @@ gst_ts_demux_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec)
 {
   GstTSDemux *demux = GST_TS_DEMUX (object);
+  GstElement *elem = GST_ELEMENT (object);
+  gboolean onoff;
+  GstStateChangeReturn ret;
+  GstState state, pending;
 
   switch (prop_id) {
     case PROP_PROGRAM_NUMBER:
@@ -420,6 +453,24 @@ gst_ts_demux_set_property (GObject * object, guint prop_id,
       break;
     case PROP_SPID:
       demux->spid = g_value_get_int (value);
+      break;
+    case PROP_BCAS_DESCRAMBLE:
+#if CONFIG_DEMULTI2
+      onoff = g_value_get_boolean (value);
+      ret = gst_element_get_state (elem, &state, &pending, 0);
+      if (ret == GST_STATE_CHANGE_ASYNC)
+        state = pending;
+      if (ret != GST_STATE_CHANGE_FAILURE && state >= GST_STATE_PAUSED) {
+        if (onoff != demux->bcas_descramble && onoff == TRUE)
+          demux->dm2_handle = demulti2_open ();
+        if (onoff != demux->bcas_descramble && onoff == FALSE) {
+          if (demux->dm2_handle)
+            demulti2_close (demux->dm2_handle);
+          demux->dm2_handle = NULL;
+        }
+      }
+      demux->bcas_descramble = onoff;
+#endif
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -448,10 +499,98 @@ gst_ts_demux_get_property (GObject * object, guint prop_id,
     case PROP_SPID:
       g_value_set_int (value, demux->spid);
       break;
+    case PROP_BCAS_DESCRAMBLE:
+      g_value_set_boolean (value, demux->bcas_descramble);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
   }
 }
+
+static GstStateChangeReturn
+gst_ts_demux_change_state (GstElement * element, GstStateChange transition)
+{
+  GstStateChangeReturn ret;
+  GstTSDemux *demux;
+
+  demux = GST_TS_DEMUX (element);
+
+  switch (transition) {
+    case GST_STATE_CHANGE_READY_TO_PAUSED:
+#if CONFIG_DEMULTI2
+      if (demux->bcas_descramble)
+        demux->dm2_handle = demulti2_open ();
+#endif
+      if (reset_pat.buffer == NULL) {
+        guint8 *buf;
+
+        /* make an empty PAT, used for resetting */
+        reset_pat.buffer = gst_buffer_new_and_alloc (12);
+        gst_buffer_ref (reset_pat.buffer);
+        buf = GST_BUFFER_DATA (reset_pat.buffer);
+        memset (buf, 0, GST_BUFFER_SIZE (reset_pat.buffer));
+        buf[1] = 0xb0;
+        buf[2] = 9;
+        buf[5] = 0xc1;
+        buf[8] = 0x33;
+        buf[9] = 0x4f;
+        buf[10] = 0xf8;
+        buf[11] = 0xa0;
+      }
+      break;
+    default:
+      break;
+  }
+
+  ret = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
+
+  switch (transition) {
+    case GST_STATE_CHANGE_PAUSED_TO_READY:
+#if CONFIG_DEMULTI2
+      if (demux->bcas_descramble && demux->dm2_handle)
+        demulti2_close (demux->dm2_handle);
+      demux->dm2_handle = NULL;
+#endif
+
+      if (base->pat && reset_pat.buffer) {
+        base->mode = BASE_MODE_SCANNING;
+        mpegts_packetizer_clear (base->packetizer);
+        mpegts_base_handle_psi (base, &reset_pat);
+        gst_buffer_unref (reset_pat.buffer);
+        reset_pat.buffer = NULL;
+      }
+
+      if (demux->default_pads) {
+        GstElement *element = (GstElement *) demux;
+
+        if (demux->apad) {
+          gst_pad_set_active (demux->apad, FALSE);
+          gst_element_remove_pad (element, demux->apad);
+        }
+        demux->apad = NULL;
+        demux->apad_assigned = FALSE;
+
+        if (demux->vpad) {
+          gst_pad_set_active (demux->vpad, FALSE);
+          gst_element_remove_pad (element, demux->vpad);
+        }
+        demux->vpad = NULL;
+        demux->vpad_assigned = FALSE;
+        if (demux->spad) {
+          gst_pad_set_active (demux->spad, FALSE);
+          gst_element_remove_pad (element, demux->spad);
+        }
+        demux->spad = NULL;
+        demux->spad_assigned = FALSE;
+      }
+      break;
+    default:
+      break;
+  }
+
+  return ret;
+}
+
 
 static const GstQueryType *
 gst_ts_demux_srcpad_query_types (GstPad * pad)
@@ -1662,6 +1801,65 @@ gst_ts_demux_program_stopped (MpegTSBase * base, MpegTSBaseProgram * program)
     select_program (demux);
 }
 
+static void
+gst_ts_demux_packet_scrambled (MpegTSBase * base,
+    MpegTSPacketizerPacket * packet)
+{
+#if CONFIG_DEMULTI2
+  GstTSDemux *demux = GST_TS_DEMUX (base);
+  MpegTSBaseStream *stream;
+  guint16 len;
+  int ret;
+
+  if (!demux->bcas_descramble || !demux->dm2_handle) {
+    GST_LOG ("BCAS not available.");
+    return;
+  }
+
+  if (demux->program == NULL || demux->program->streams[packet->pid] == NULL) {
+    GST_LOG ("PMT not ready yet for pid:0x%04hx.", packet->pid);
+    return;
+  }
+
+  stream = demux->program->streams[packet->pid];
+  if (stream->ecm_pid >= 0x1FFF) {
+    GST_LOG ("pid:0x%04hx should be non-scrambled.", packet->pid);
+    return;
+  }
+
+  len = packet->data_end - packet->payload;
+  ret = demulti2_descramble (demux->dm2_handle, packet->payload, len,
+        packet->ca_flags << 6, stream->ecm_pid, packet->payload);
+  if (ret > 0) {
+    GST_LOG ("Failed to descramble pid:0x%04hx. ret:%d.", packet->pid, ret);
+    return;
+  }
+  packet->data_start[3] &= 0x3F;
+  packet->ca_flags = 0;
+  return;
+#endif /* CONFIG_DEMULTI2 */
+}
+
+static void
+gst_ts_demux_ecm_received (MpegTSBase * base, guint16 ecm_pid,
+    guint8 * data, guint body_len)
+{
+#if CONFIG_DEMULTI2
+  GstTSDemux *demux = GST_TS_DEMUX (base);
+  int ret;
+
+  if (!demux->bcas_descramble || !demux->dm2_handle)
+    return;
+
+  ret = demulti2_feed_ecm (demux->dm2_handle, data, body_len, ecm_pid);
+  if (G_UNLIKELY (ret > 0))
+    GST_WARNING ("Failed to feed an ECM body. pid:0x%04hx, ret:%d.",
+        ecm_pid, ret);
+
+  return;
+#endif /* CONFIG_DEMULTI2 */
+}
+
 static gboolean
 process_section (MpegTSBase * base)
 {
@@ -2722,7 +2920,7 @@ gst_ts_demux_push (MpegTSBase * base, MpegTSPacketizerPacket * packet,
   TSDemuxStream *stream = NULL;
   GstFlowReturn res = GST_FLOW_OK;
 
-  if (G_LIKELY (demux->program)) {
+  if (G_LIKELY (demux->program && !packet->ca_flags)) {
     stream = (TSDemuxStream *) demux->program->streams[packet->pid];
 
     if (stream) {

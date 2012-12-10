@@ -52,11 +52,13 @@ typedef struct _MpegTSBase MpegTSBase;
 typedef struct _MpegTSBaseClass MpegTSBaseClass;
 typedef struct _MpegTSBaseStream MpegTSBaseStream;
 typedef struct _MpegTSBaseProgram MpegTSBaseProgram;
+typedef struct _MpegTSBaseECM MpegTSBaseECM;
 
 struct _MpegTSBaseStream
 {
   guint16 pid;
   guint8 stream_type;
+  guint16 ecm_pid;
   GstStructure* stream_info;
 };
 
@@ -65,6 +67,7 @@ struct _MpegTSBaseProgram
   gint program_number;
   guint16 pmt_pid;
   guint16 pcr_pid;
+  guint16 ecm_pid;
   GstStructure *pmt_info;
   MpegTSBaseStream **streams;
   GList *stream_list;
@@ -76,6 +79,13 @@ struct _MpegTSBaseProgram
 
   /* TRUE if the program is currently being used */
   gboolean active;
+};
+
+struct _MpegTSBaseECM
+{
+  guint16 pid;
+  guint16 cas_id;
+  guint refcount;
 };
 
 typedef enum {
@@ -108,6 +118,7 @@ struct _MpegTSBase {
   /* the following vars must be protected with the OBJECT_LOCK as they can be
    * accessed from the application thread and the streaming thread */
   GHashTable *programs;
+  GHashTable *ecms;
 
   GstStructure *pat;
   MpegTSPacketizer2 *packetizer;
@@ -167,6 +178,11 @@ struct _MpegTSBaseClass {
 
   /* flush all streams */
   void (*flush) (MpegTSBase * base);
+
+  /* called when a new TS packet is descrambled */
+  void (*packet_scrambled) (MpegTSBase * base, MpegTSPacketizerPacket *packet);
+  /* called when ECM is recieved */
+  void (*ecm_received) (MpegTSBase * base, guint16 ecm_pid, guint8 *data, guint len);
 
   /* signals */
   void (*pat_info) (GstStructure *pat);

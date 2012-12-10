@@ -56,6 +56,8 @@ static GQuark QUARK_PID;
 static GQuark QUARK_PCR_PID;
 static GQuark QUARK_STREAMS;
 static GQuark QUARK_STREAM_TYPE;
+static GQuark QUARK_CA_SYSTEM;
+static GQuark QUARK_CA_PID;
 
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
@@ -162,6 +164,8 @@ _extra_init (GType type)
   QUARK_PCR_PID = g_quark_from_string ("pcr-pid");
   QUARK_STREAMS = g_quark_from_string ("streams");
   QUARK_STREAM_TYPE = g_quark_from_string ("stream-type");
+  QUARK_CA_SYSTEM = g_quark_from_string ("ca-system-id");
+  QUARK_CA_PID = g_quark_from_string ("ca-pid");
 }
 
 static void
@@ -243,6 +247,8 @@ mpegts_base_init (MpegTSBase * base, MpegTSBaseClass * klass)
   base->packetizer = mpegts_packetizer_new ();
   base->programs = g_hash_table_new_full (g_direct_hash, g_direct_equal,
       NULL, (GDestroyNotify) mpegts_base_free_program);
+  base->ecms = g_hash_table_new_full (g_direct_hash, g_direct_equal,
+      NULL, (GDestroyNotify) g_free);
 
   base->is_pes = g_new0 (guint8, 1024);
   base->known_psi = g_new0 (guint8, 1024);
@@ -396,6 +402,50 @@ mpegts_get_descriptor_from_program (MpegTSBaseProgram * program, guint8 tag)
   }
   return retval;
 }
+
+static MpegTSBaseECM *
+mpegts_base_add_ecm (MpegTSBase * base, guint cas_id, guint ecm_pid)
+{
+  MpegTSBaseECM *ecm;
+
+  if (ecm_pid >= 0x1FFF)
+    return NULL;
+
+  ecm = g_hash_table_lookup (base->ecms, GUINT_TO_POINTER (ecm_pid));
+  if (ecm != NULL) {
+    ecm->refcount++;
+    return ecm;
+  }
+
+  ecm = g_malloc0 (sizeof (MpegTSBaseECM));
+  if (ecm == NULL) {
+    GST_INFO_OBJECT (base, "failed to malloc ECM.\n");
+    return NULL;
+  }
+
+  ecm->pid = (guint16) ecm_pid;
+  ecm->cas_id = (guint16) cas_id;
+  ecm->refcount = 1;
+  g_hash_table_insert (base->ecms, GUINT_TO_POINTER (ecm_pid), ecm);
+  MPEGTS_BIT_SET (base->known_psi, ecm_pid);
+  GST_LOG_OBJECT (base, "added ecm:0x%04x\n", ecm_pid);
+  return ecm;
+}
+
+static void
+mpegts_base_remove_ecm (MpegTSBase * base, guint ecm_pid)
+{
+  MpegTSBaseECM *ecm;
+
+  ecm = g_hash_table_lookup (base->ecms, GUINT_TO_POINTER (ecm_pid));
+  if (ecm == NULL || --ecm->refcount > 0)
+    return;
+
+  g_hash_table_remove (base->ecms, GUINT_TO_POINTER (ecm_pid));
+  MPEGTS_BIT_UNSET (base->known_psi, ecm_pid);
+  GST_LOG_OBJECT (base, "removed ecm:0x%04x\n", ecm_pid);
+}
+
 
 static MpegTSBaseProgram *
 mpegts_base_new_program (MpegTSBase * base,
@@ -586,6 +636,7 @@ mpegts_base_deactivate_program (MpegTSBase * base, MpegTSBaseProgram * program)
       stream = g_value_get_boxed (value);
 
       gst_structure_id_get (stream, QUARK_PID, G_TYPE_UINT, &pid, NULL);
+      mpegts_base_remove_ecm (base, program->streams[pid]->ecm_pid);
       mpegts_base_program_remove_stream (base, program, (guint16) pid);
 
       /* Only unset the is_pes bit if the PID isn't used in any other active
@@ -594,6 +645,7 @@ mpegts_base_deactivate_program (MpegTSBase * base, MpegTSBaseProgram * program)
         MPEGTS_BIT_UNSET (base->is_pes, pid);
     }
 
+    mpegts_base_remove_ecm (base, program->ecm_pid);
     /* remove pcr stream */
     /* FIXME : This might actually be shared with another stream ? */
     mpegts_base_program_remove_stream (base, program, program->pcr_pid);
@@ -610,9 +662,11 @@ mpegts_base_activate_program (MpegTSBase * base, MpegTSBaseProgram * program,
 {
   guint i, nbstreams;
   guint pcr_pid;
+  guint ca_sys_id;
   guint pid;
   guint stream_type;
   GstStructure *stream;
+  MpegTSBaseStream *s;
   const GValue *new_streams;
   const GValue *value;
   MpegTSBaseClass *klass;
@@ -631,6 +685,17 @@ mpegts_base_activate_program (MpegTSBase * base, MpegTSBaseProgram * program,
   program->pmt_pid = pmt_pid;
   program->pcr_pid = pcr_pid;
 
+  if (gst_structure_id_has_field (pmt_info, QUARK_CA_PID)) {
+    gst_structure_id_get (pmt_info, QUARK_CA_SYSTEM, G_TYPE_UINT,
+        &ca_sys_id, NULL);
+    gst_structure_id_get (pmt_info, QUARK_CA_PID, G_TYPE_UINT,
+        &program->ecm_pid, NULL);
+    mpegts_base_add_ecm (base, ca_sys_id, program->ecm_pid);
+  } else {
+    ca_sys_id = 0;
+    program->ecm_pid = 0x1FFF;
+  }
+
   new_streams = gst_structure_id_get_value (pmt_info, QUARK_STREAMS);
   nbstreams = gst_value_list_get_size (new_streams);
 
@@ -644,6 +709,21 @@ mpegts_base_activate_program (MpegTSBase * base, MpegTSBaseProgram * program,
     mpegts_base_program_add_stream (base, program,
         (guint16) pid, (guint8) stream_type, stream);
 
+    s = program->streams[pid];
+    if (s == NULL)
+      continue;
+    if (gst_structure_id_has_field (stream, QUARK_CA_PID)) {
+      guint stream_casid;
+
+      gst_structure_id_get (stream, QUARK_CA_SYSTEM, G_TYPE_UINT,
+          &stream_casid, NULL);
+      gst_structure_id_get (stream, QUARK_CA_PID, G_TYPE_UINT,
+          &s->ecm_pid, NULL);
+      mpegts_base_add_ecm (base, stream_casid, s->ecm_pid);
+    } else {
+      s->ecm_pid = program->ecm_pid;
+      mpegts_base_add_ecm (base, ca_sys_id, program->ecm_pid);
+    }
   }
   /* We add the PCR pid last. If that PID is already used by one of the media
    * streams above, no new stream will be created */
@@ -940,6 +1020,23 @@ mpegts_base_apply_tdt (MpegTSBase * base,
           gst_structure_copy (tdt_info)));
 }
 
+static void
+mpegts_base_apply_ecm (MpegTSBase * base,
+    guint16 ecm_pid, GstStructure * ecm_info)
+{
+  GByteArray *body;
+  MpegTSBaseClass *klass;
+
+  if (!gst_structure_get (ecm_info, "body", G_TYPE_BYTE_ARRAY, &body, NULL)) {
+    GST_WARNING_OBJECT (base, "failed to get body data from ECM.");
+    return;
+  }
+  GST_DEBUG_OBJECT (base, "ECM pid:0x%04hx bodylen:%d", ecm_pid, body->len);
+
+  klass = GST_MPEGTS_BASE_GET_CLASS (base);
+  if (klass->ecm_received != NULL)
+    klass->ecm_received (base, ecm_pid, body->data, body->len);
+}
 
 gboolean
 mpegts_base_handle_psi (MpegTSBase * base, MpegTSPacketizerSection * section)
@@ -1047,6 +1144,14 @@ mpegts_base_handle_psi (MpegTSBase * base, MpegTSPacketizerSection * section)
       structure = mpegts_packetizer_parse_tdt (base->packetizer, section);
       if (G_LIKELY (structure))
         mpegts_base_apply_tdt (base, section->pid, structure);
+      else
+        res = FALSE;
+      break;
+    case 0x82:
+      /* ECM */
+      structure = mpegts_packetizer_parse_ecm (base->packetizer, section);
+      if (G_LIKELY (structure))
+        mpegts_base_apply_ecm (base, section->pid, structure);
       else
         res = FALSE;
       break;
@@ -1235,6 +1340,16 @@ mpegts_base_push (MpegTSBase * base, MpegTSPacketizerPacket * packet,
   return klass->push (base, packet, section);
 }
 
+static inline void
+mpegts_base_packet_scrambled (MpegTSBase * base,
+    MpegTSPacketizerPacket * packet)
+{
+  MpegTSBaseClass *klass = GST_MPEGTS_BASE_GET_CLASS (base);
+
+  if (klass->packet_scrambled)
+    klass->packet_scrambled (base, packet);
+}
+
 static GstFlowReturn
 mpegts_base_chain (GstPad * pad, GstBuffer * buf)
 {
@@ -1262,6 +1377,10 @@ mpegts_base_chain (GstPad * pad, GstBuffer * buf)
     if (G_UNLIKELY (pret == PACKET_BAD))
       /* bad header, skip the packet */
       goto next;
+
+    /* try to descramble */
+    if (packet.ca_flags != 0)
+      mpegts_base_packet_scrambled (base, &packet);
 
     /* base PSI data */
     if (packet.payload != NULL && mpegts_base_is_psi (base, &packet)) {

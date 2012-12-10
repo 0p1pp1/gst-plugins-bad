@@ -99,6 +99,7 @@ typedef struct
   guint8 *data;
 
   guint8 afc_flags;
+  guint8 ca_flags;
   guint64 pcr;
   guint64 opcr;
   guint64 offset;
@@ -166,6 +167,8 @@ GstStructure *mpegts_packetizer_parse_sdt (MpegTSPacketizer2 *packetizer,
 GstStructure *mpegts_packetizer_parse_eit (MpegTSPacketizer2 *packetizer,
   MpegTSPacketizerSection *section);
 GstStructure *mpegts_packetizer_parse_tdt (MpegTSPacketizer2 *packetizer,
+  MpegTSPacketizerSection *section);
+GstStructure *mpegts_packetizer_parse_ecm (MpegTSPacketizer2 *packetizer,
   MpegTSPacketizerSection *section);
 guint64 mpegts_packetizer_compute_pcr(const guint8 * data);
 
