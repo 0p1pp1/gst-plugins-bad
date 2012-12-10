@@ -493,13 +493,6 @@ mpegts_base_remove_program (MpegTSBase * base, gint program_number)
 
   GST_DEBUG_OBJECT (base, "program_number : %d", program_number);
 
-  if (klass->program_stopped) {
-    program =
-        (MpegTSBaseProgram *) g_hash_table_lookup (base->programs,
-        GINT_TO_POINTER (program_number));
-    if (program)
-      klass->program_stopped (base, program);
-  }
   g_hash_table_remove (base->programs, GINT_TO_POINTER (program_number));
 }
 
