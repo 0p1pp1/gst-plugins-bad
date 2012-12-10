@@ -82,6 +82,12 @@ static GQuark QUARK_OPCR;
 static GQuark QUARK_PTS;
 static GQuark QUARK_DTS;
 static GQuark QUARK_OFFSET;
+static GQuark QUARK_COMPONENT_TAG;
+
+
+#define PRIMARY_SERVICE_AUDIO (1 << 0)
+#define PRIMARY_SERVICE_VIDEO (1 << 1)
+#define PRIMARY_SERVICE_SUBPIC (1 << 2)
 
 typedef enum
 {
@@ -102,6 +108,18 @@ struct _TSDemuxStream
   MpegTSBaseStream stream;
 
   GstPad *pad;
+
+  enum
+  {
+    PES_TYPE_UNKNOWN,
+    PES_TYPE_AUDIO,
+    PES_TYPE_VIDEO,
+    PES_TYPE_SUBPICTURE,
+    PES_TYPE_PRIVATE,
+  } pestype;
+
+  /* set to FALSE before a push and TRUE after */
+  gboolean pushed;
 
   /* the return of the latest push */
   GstFlowReturn flow_return;
@@ -194,6 +212,9 @@ enum
   ARG_0,
   PROP_PROGRAM_NUMBER,
   PROP_EMIT_STATS,
+  PROP_APID,
+  PROP_VPID,
+  PROP_SPID,
   /* FILL ME */
 };
 
@@ -205,6 +226,8 @@ static gboolean gst_ts_demux_srcpad_query (GstPad * pad, GstQuery * query);
 /* mpegtsbase methods */
 static void
 gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program);
+static void
+gst_ts_demux_program_stopped (MpegTSBase * base, MpegTSBaseProgram * program);
 static void gst_ts_demux_reset (MpegTSBase * base);
 static GstFlowReturn
 gst_ts_demux_push (MpegTSBase * base, MpegTSPacketizerPacket * packet,
@@ -234,6 +257,7 @@ static GstFlowReturn
 gst_ts_demux_push_pending_data (GstTSDemux * demux, TSDemuxStream * stream);
 
 static gboolean push_event (MpegTSBase * base, GstEvent * event);
+static void select_program (GstTSDemux * demux);
 static void _extra_init (GType type);
 
 GST_BOILERPLATE_FULL (GstTSDemux, gst_ts_demux, MpegTSBase,
@@ -249,6 +273,7 @@ _extra_init (GType type)
   QUARK_PTS = g_quark_from_string ("pts");
   QUARK_DTS = g_quark_from_string ("dts");
   QUARK_OFFSET = g_quark_from_string ("offset");
+  QUARK_COMPONENT_TAG = g_quark_from_string ("component-tag");
 }
 
 static void
@@ -294,12 +319,28 @@ gst_ts_demux_class_init (GstTSDemuxClass * klass)
           "Emit messages for every pcr/opcr/pts/dts", FALSE,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_APID,
+      g_param_spec_int ("apid", "Audio PID",
+          "PID of audio stream to demux (-1 to ignore)", -1, 8191,
+          -1, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_VPID,
+      g_param_spec_int ("vpid", "Video PID",
+          "PID of video stream to demux (-1 to ignore)", -1, 8191,
+          -1, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_APID,
+      g_param_spec_int ("spid", "Subpicture PID",
+          "PID of subpicture stream to demux (-1 to ignore)", -1, 8191,
+          -1, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
 
   ts_class = GST_MPEGTS_BASE_CLASS (klass);
   ts_class->reset = GST_DEBUG_FUNCPTR (gst_ts_demux_reset);
   ts_class->push = GST_DEBUG_FUNCPTR (gst_ts_demux_push);
   ts_class->push_event = GST_DEBUG_FUNCPTR (push_event);
   ts_class->program_started = GST_DEBUG_FUNCPTR (gst_ts_demux_program_started);
+  ts_class->program_stopped = GST_DEBUG_FUNCPTR (gst_ts_demux_program_stopped);
   ts_class->stream_added = gst_ts_demux_stream_added;
   ts_class->stream_removed = gst_ts_demux_stream_removed;
   ts_class->find_timestamps = GST_DEBUG_FUNCPTR (find_timestamps);
@@ -312,6 +353,7 @@ gst_ts_demux_init (GstTSDemux * demux, GstTSDemuxClass * klass)
 {
   demux->need_newsegment = TRUE;
   demux->program_number = -1;
+  demux->apid = demux->vpid = demux->spid = -1;
   demux->duration = GST_CLOCK_TIME_NONE;
   GST_MPEGTS_BASE (demux)->stream_size = sizeof (TSDemuxStream);
   gst_segment_init (&demux->segment, GST_FORMAT_TIME);
@@ -365,9 +407,19 @@ gst_ts_demux_set_property (GObject * object, guint prop_id,
       /* FIXME: do something if program is switched as opposed to set at
        * beginning */
       demux->program_number = g_value_get_int (value);
+      select_program (demux);
       break;
     case PROP_EMIT_STATS:
       demux->emit_statistics = g_value_get_boolean (value);
+      break;
+    case PROP_APID:
+      demux->apid = g_value_get_int (value);
+      break;
+    case PROP_VPID:
+      demux->vpid = g_value_get_int (value);
+      break;
+    case PROP_SPID:
+      demux->spid = g_value_get_int (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -386,6 +438,15 @@ gst_ts_demux_get_property (GObject * object, guint prop_id,
       break;
     case PROP_EMIT_STATS:
       g_value_set_boolean (value, demux->emit_statistics);
+      break;
+    case PROP_APID:
+      g_value_set_int (value, demux->apid);
+      break;
+    case PROP_VPID:
+      g_value_set_int (value, demux->vpid);
+      break;
+    case PROP_SPID:
+      g_value_set_int (value, demux->spid);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1242,9 +1303,20 @@ gst_ts_demux_stream_added (MpegTSBase * base, MpegTSBaseStream * bstream,
 
   if (!stream->pad) {
     /* Create the pad */
-    if (bstream->stream_type != 0xff)
+    if (bstream->stream_type != 0xff) {
       stream->pad = create_pad_for_stream (base, bstream, program);
+      if (stream->pad != NULL) {
+        gchar *pname;
 
+        pname = gst_pad_get_name (stream->pad);
+        stream->pestype = g_str_has_prefix (pname, "audio") ? PES_TYPE_AUDIO :
+            g_str_has_prefix (pname, "video") ? PES_TYPE_VIDEO :
+            g_str_has_prefix (pname, "subpicture") ? PES_TYPE_SUBPICTURE :
+            g_str_has_prefix (pname, "private") ? PES_TYPE_PRIVATE :
+            PES_TYPE_UNKNOWN;
+        g_free (pname);
+      }
+    }
     stream->pts = GST_CLOCK_TIME_NONE;
     stream->dts = GST_CLOCK_TIME_NONE;
     stream->raw_pts = 0;
@@ -1287,10 +1359,32 @@ gst_ts_demux_stream_removed (MpegTSBase * base, MpegTSBaseStream * bstream)
   stream->flow_return = GST_FLOW_NOT_LINKED;
 }
 
+static gboolean
+is_selected_stream (GstTSDemux * tsdemux, TSDemuxStream * stream)
+{
+  guint16 pid = ((MpegTSBaseStream *) stream)->pid;
+  gint check_pid;
+
+  check_pid = (stream->pestype == PES_TYPE_AUDIO) ? tsdemux->apid :
+      (stream->pestype == PES_TYPE_VIDEO) ? tsdemux->vpid :
+      (stream->pestype == PES_TYPE_SUBPICTURE) ? tsdemux->spid : -1;
+
+  if (check_pid != -1 && pid != check_pid)
+    return FALSE;
+
+  /* TODO: filter by 'component-tag' if possible,
+   *   to expose just one (primary) PES per pes-type.
+   */
+  return TRUE;
+}
+
 static void
 activate_pad_for_stream (GstTSDemux * tsdemux, TSDemuxStream * stream)
 {
-  if (stream->pad) {
+  if ((GST_MPEGTS_BASE (tsdemux))->mode == BASE_MODE_SCANNING)
+    return;
+
+  if (stream->pad && is_selected_stream (tsdemux, stream)) {
     GST_DEBUG_OBJECT (tsdemux, "Activating pad %s:%s for stream %p",
         GST_DEBUG_PAD_NAME (stream->pad), stream);
     gst_pad_set_active (stream->pad, TRUE);
@@ -1326,61 +1420,31 @@ gst_ts_demux_flush_streams (GstTSDemux * demux)
 }
 
 static gboolean
-is_audio (guint8 stype)
-{
-  switch (stype) {
-    case ST_AUDIO_MPEG1:
-    case ST_AUDIO_MPEG2:
-    case ST_AUDIO_AAC:
-    case ST_PS_AUDIO_AC3:
-    case ST_PS_AUDIO_DTS:
-    case ST_PS_AUDIO_LPCM:
-      return TRUE;
-  }
-
-  return FALSE;
-}
-
-static gboolean
-is_video (guint8 stype)
-{
-  switch (stype) {
-    case ST_VIDEO_MPEG1:
-    case ST_VIDEO_MPEG2:
-    case ST_VIDEO_MPEG4:
-    case ST_VIDEO_H264:
-      return TRUE;
-  }
-
-  return FALSE;
-}
-
-static gboolean
-is_valid_program (MpegTSBaseProgram * program, MpegTSBaseMode mode)
+is_valid_program (GstTSDemux * demux, MpegTSBaseProgram * program,
+    guint * primary_service)
 {
   guint i;
   guint pid;
   const GValue *streams;
   const GValue *value;
   GstStructure *stream;
-  GstPad *pad;
-  gchar *name;
+  guint tag;
+  gboolean ret;
 
-  g_return_val_if_fail (program != NULL && program->pmt_info != NULL, FALSE);
+  if (primary_service != NULL)
+    *primary_service = 0;
 
-  if (mode == BASE_MODE_SCANNING) {
-    for (i = 0; i < 8192; i++)
-      if (program->streams[i])
-        if (is_audio (program->streams[i]->stream_type) ||
-            is_video (program->streams[i]->stream_type))
-          return TRUE;
+  if (program == NULL)
     return FALSE;
-  }
+
+  if (program->pmt_info == NULL)
+    return FALSE;
 
   streams = gst_structure_get_value (program->pmt_info, "streams");
   if (streams == NULL)
     return FALSE;
 
+  ret = FALSE;
   for (i = 0; i < gst_value_list_get_size (streams); ++i) {
     value = gst_value_list_get_value (streams, i);
     stream = g_value_get_boxed (value);
@@ -1388,26 +1452,50 @@ is_valid_program (MpegTSBaseProgram * program, MpegTSBaseMode mode)
         program->streams[pid] == NULL)
       continue;
 
-    pad = ((TSDemuxStream *) program->streams[pid])->pad;
-    if (pad == NULL)
-      continue;
-
-    name = gst_pad_get_name (pad);
-    if (g_str_has_prefix (name, "video") || g_str_has_prefix (name, "audio")) {
-      g_free (name);
-      return TRUE;
+    switch (((TSDemuxStream *) program->streams[pid])->pestype) {
+      case PES_TYPE_AUDIO:
+        ret = TRUE;
+        if (primary_service != NULL &&
+            !(*primary_service & PRIMARY_SERVICE_AUDIO) &&
+            gst_structure_has_field (stream, "component-tag") &&
+            gst_structure_get_uint (stream, "component-tag", &tag) &&
+            tag == 0x10)
+          *primary_service |= PRIMARY_SERVICE_AUDIO;
+        break;
+      case PES_TYPE_VIDEO:
+        ret = TRUE;
+        if (primary_service != NULL &&
+            !(*primary_service & PRIMARY_SERVICE_VIDEO) &&
+            gst_structure_has_field (stream, "component-tag") &&
+            gst_structure_get_uint (stream, "component-tag", &tag) &&
+            tag == 0x00)
+          *primary_service |= PRIMARY_SERVICE_VIDEO;
+        break;
+      case PES_TYPE_SUBPICTURE:
+        ret = TRUE;
+        if (primary_service != NULL &&
+            !(*primary_service & PRIMARY_SERVICE_SUBPIC) &&
+            gst_structure_has_field (stream, "component-tag") &&
+            gst_structure_get_uint (stream, "component-tag", &tag) &&
+            tag == 0x30)
+          *primary_service |= PRIMARY_SERVICE_SUBPIC;
+        break;
+      default:
+        /* do nothing, but to surpress comipler warnings */
+        break;
     }
-    g_free (name);
+
+    if (ret && primary_service == NULL)
+      return ret;
   }
 
-  return FALSE;
+  return ret;
 }
 
-
 static void
-gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
+activate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
 {
-  GstTSDemux *demux = GST_TS_DEMUX (base);
+  MpegTSBase *base = GST_MPEGTS_BASE (demux);
 
   GST_DEBUG ("Current program %d, new program %d",
       demux->program_number, program->program_number);
@@ -1416,7 +1504,8 @@ gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
       demux->program_number == program->program_number) {
     GList *tmp;
 
-    if (demux->program_number == -1 && !is_valid_program (program, base->mode))
+    if (demux->program_number == -1 &&
+       !is_valid_program (demux, program, NULL))
       return;
 
     GST_LOG ("program %d started", program->program_number);
@@ -1430,10 +1519,147 @@ gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
       gst_element_no_more_pads ((GstElement *) demux);
     }
 
-    /* Inform scanner we have got our program */
-    demux->current_program_number = program->program_number;
     demux->need_newsegment = TRUE;
   }
+}
+
+static void
+deactivate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
+{
+  GList *tmp;
+
+  GST_LOG ("program %d stopped", program->program_number);
+
+  if (program != demux->program)
+    return;
+
+  for (tmp = program->stream_list; tmp; tmp = tmp->next) {
+    TSDemuxStream *localstream = (TSDemuxStream *) tmp->data;
+
+    if (localstream->pad) {
+      GST_DEBUG ("HAVE PAD %s:%s", GST_DEBUG_PAD_NAME (localstream->pad));
+      if (gst_pad_is_active (localstream->pad))
+        gst_element_remove_pad (GST_ELEMENT_CAST (demux), localstream->pad);
+      else
+        gst_object_unref (localstream->pad);
+      localstream->pad = NULL;
+    }
+  }
+
+  demux->program = NULL;
+  demux->select_state = SELECT_STATE_TEMPORARY;
+}
+
+/* if demux->program_number has changed or should be set */
+static void
+select_program (GstTSDemux * demux)
+{
+  MpegTSBase *base = GST_MPEGTS_BASE (demux);
+  GHashTableIter it;
+  gpointer key, value;
+  gint progid;
+  MpegTSBaseProgram *prog, *candidate;
+  int score;
+  guint primary_service = 0;
+
+  /* case: already selected */
+  if (demux->program != NULL) {
+    if (demux->program_number == demux->program->program_number)
+      goto done;
+    if (demux->program_number == -1) {
+      if (demux->select_state == SELECT_STATE_CERTAIN)
+        goto done;
+    } else {
+      /* previously selected program is not the right one */
+      deactivate_program (demux, demux->program);
+    }
+  }
+  // FIXME: should we get lock?
+  //GST_OBJECT_LOCK (demux);
+  score = -1;
+  candidate = NULL;
+  g_hash_table_iter_init (&it, base->programs);
+  while (g_hash_table_iter_next (&it, &key, &value)) {
+    progid = GPOINTER_TO_INT (key);
+    prog = value;
+
+    if (demux->program_number != -1 && progid != demux->program_number)
+      continue;
+
+    if (prog->pmt_info == NULL)
+      continue;
+
+    if (progid == demux->program_number) {
+      candidate = prog;
+      score = SELECT_STATE_CERTAIN;
+      break;
+    }
+
+    if (!is_valid_program (demux, prog, &primary_service))
+      continue;
+
+    if (primary_service == 0 && demux->apid == -1 &&
+        demux->vpid == -1 && demux->spid == -1)
+      continue;
+
+    if ((demux->apid != -1 && prog->streams[demux->apid] != NULL) ||
+        (demux->vpid != -1 && prog->streams[demux->vpid] != NULL) ||
+        (demux->spid != -1 && prog->streams[demux->vpid] != NULL)) {
+      if (score < SELECT_STATE_UNCERTAIN) {
+        score = SELECT_STATE_UNCERTAIN;
+        candidate = prog;
+      }
+    }
+
+    if (primary_service &&
+        (demux->apid == -1 || prog->streams[demux->apid] != NULL) &&
+        (demux->vpid == -1 || prog->streams[demux->vpid] != NULL) &&
+        (demux->spid == -1 || prog->streams[demux->spid] != NULL)) {
+      score = SELECT_STATE_CERTAIN;
+      candidate = prog;
+    }
+  }
+  //GST_OBJECT_UNLOCK (demux);
+
+  if (candidate == NULL)
+    goto done;
+
+  if (demux->program == NULL) {
+    activate_program (demux, candidate);
+    demux->select_state = score;
+  } else if (demux->select_state < score) {
+    deactivate_program (demux, demux->program);
+    activate_program (demux, candidate);
+    demux->select_state = score;
+  }
+
+done:
+  GST_INFO ("selected prog:%d level:%d\n",
+      (demux->program) ? demux->program->program_number : -1,
+      demux->select_state);
+  return;
+}
+
+static void
+gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
+{
+  GstTSDemux *demux = GST_TS_DEMUX (base);
+
+  GST_DEBUG ("Current program %d, new program %d",
+      demux->program_number, program->program_number);
+
+  if (demux->program == NULL)
+    select_program (demux);
+}
+
+static void
+gst_ts_demux_program_stopped (MpegTSBase * base, MpegTSBaseProgram * program)
+{
+  GstTSDemux *demux = GST_TS_DEMUX (base);
+
+  deactivate_program (demux, program);
+  if (base->mode != BASE_MODE_SCANNING)
+    select_program (demux);
 }
 
 static gboolean
@@ -1685,12 +1911,31 @@ find_timestamps (MpegTSBase * base, guint64 initoff, guint64 * offset)
   guint i = 0;
   TSPcrOffset initial, final;
   GstTSDemux *demux = GST_TS_DEMUX (base);
+  static MpegTSPacketizerSection reset_pat = { 0 };
+  guint prog_num_save;
 
   GST_DEBUG ("Scanning for timestamps");
+
+  if (reset_pat.buffer == NULL) {
+    guint8 *buf;
+
+    /* make an empty PAT, used for resetting */
+    reset_pat.buffer = gst_buffer_new_and_alloc (12);
+    buf = GST_BUFFER_DATA (reset_pat.buffer);
+    memset (buf, 0, GST_BUFFER_SIZE (reset_pat.buffer));
+    buf[1] = 0xb0;
+    buf[2] = 9;
+    buf[5] = 0xc1;
+    buf[8] = 0x33;
+    buf[9] = 0x4f;
+    buf[10] = 0xf8;
+    buf[11] = 0xa0;
+  }
 
   /* Flush what remained from before */
   mpegts_packetizer_clear (base->packetizer);
 
+  prog_num_save = demux->program_number;
   /* Start scanning from know PAT offset */
   while (!done) {
     ret =
@@ -1718,11 +1963,13 @@ find_timestamps (MpegTSBase * base, guint64 initoff, guint64 * offset)
   }
 
   mpegts_packetizer_clear (base->packetizer);
+  demux->program_number = demux->program->program_number;
   /* Remove current program so we ensure looking for a PAT when scanning the 
    * for the final PCR */
-  gst_structure_free (base->pat);
-  base->pat = NULL;
-  mpegts_base_remove_program (base, demux->current_program_number);
+  mpegts_base_handle_psi (base, &reset_pat);
+  memset (base->is_pes, 0, 1024);
+  memset (base->known_psi, 0, 1024);
+  MPEGTS_BIT_SET (base->known_psi, 0);
   demux->program = NULL;
 
   /* Find end position */
@@ -1776,12 +2023,12 @@ find_timestamps (MpegTSBase * base, guint64 initoff, guint64 * offset)
 beach:
 
   mpegts_packetizer_clear (base->packetizer);
-  /* Remove current program */
-  if (base->pat) {
-    gst_structure_free (base->pat);
-    base->pat = NULL;
-  }
-  mpegts_base_remove_program (base, demux->current_program_number);
+  /* Remove current program & PAT */
+  mpegts_base_handle_psi (base, &reset_pat);
+  memset (base->is_pes, 0, 1024);
+  memset (base->known_psi, 0, 1024);
+  MPEGTS_BIT_SET (base->known_psi, 0);
+  demux->program_number = prog_num_save;
   demux->program = NULL;
 
   return ret;
@@ -2497,5 +2744,5 @@ gst_ts_demux_plugin_init (GstPlugin * plugin)
   init_pes_parser ();
 
   return gst_element_register (plugin, "tsdemux",
-      GST_RANK_SECONDARY, GST_TYPE_TS_DEMUX);
+      GST_RANK_PRIMARY + 1, GST_TYPE_TS_DEMUX);
 }

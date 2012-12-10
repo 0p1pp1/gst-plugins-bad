@@ -65,10 +65,15 @@ struct _GstTSDemux
    * accessed from the application thread and the streaming thread */
   guint program_number;		/* Required program number (ignore:-1) */
   gboolean emit_statistics;
+  gint apid, vpid, spid;
 
   /*< private >*/
   MpegTSBaseProgram *program;	/* Current program */
-  guint	current_program_number;
+  enum {
+    SELECT_STATE_TEMPORARY,
+    SELECT_STATE_UNCERTAIN,
+    SELECT_STATE_CERTAIN,
+  } select_state;         /* how sure the progam is selected */
   gboolean need_newsegment;
   /* Downstream segment */
   GstSegment segment;

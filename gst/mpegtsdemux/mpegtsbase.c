@@ -488,8 +488,6 @@ mpegts_base_free_program (MpegTSBaseProgram * program)
 void
 mpegts_base_remove_program (MpegTSBase * base, gint program_number)
 {
-  MpegTSBaseProgram *program;
-  MpegTSBaseClass *klass = GST_MPEGTS_BASE_GET_CLASS (base);
 
   GST_DEBUG_OBJECT (base, "program_number : %d", program_number);
 
