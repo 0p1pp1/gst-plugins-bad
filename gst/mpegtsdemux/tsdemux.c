@@ -1326,7 +1326,37 @@ gst_ts_demux_flush_streams (GstTSDemux * demux)
 }
 
 static gboolean
-is_valid_program (MpegTSBaseProgram * program)
+is_audio (guint8 stype)
+{
+  switch (stype) {
+    case ST_AUDIO_MPEG1:
+    case ST_AUDIO_MPEG2:
+    case ST_AUDIO_AAC:
+    case ST_PS_AUDIO_AC3:
+    case ST_PS_AUDIO_DTS:
+    case ST_PS_AUDIO_LPCM:
+      return TRUE;
+  }
+
+  return FALSE;
+}
+
+static gboolean
+is_video (guint8 stype)
+{
+  switch (stype) {
+    case ST_VIDEO_MPEG1:
+    case ST_VIDEO_MPEG2:
+    case ST_VIDEO_MPEG4:
+    case ST_VIDEO_H264:
+      return TRUE;
+  }
+
+  return FALSE;
+}
+
+static gboolean
+is_valid_program (MpegTSBaseProgram * program, MpegTSBaseMode mode)
 {
   guint i;
   guint pid;
@@ -1337,6 +1367,15 @@ is_valid_program (MpegTSBaseProgram * program)
   gchar *name;
 
   g_return_val_if_fail (program != NULL && program->pmt_info != NULL, FALSE);
+
+  if (mode == BASE_MODE_SCANNING) {
+    for (i = 0; i < 8192; i++)
+      if (program->streams[i])
+        if (is_audio (program->streams[i]->stream_type) ||
+            is_video (program->streams[i]->stream_type))
+          return TRUE;
+    return FALSE;
+  }
 
   streams = gst_structure_get_value (program->pmt_info, "streams");
   if (streams == NULL)
@@ -1377,7 +1416,7 @@ gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
       demux->program_number == program->program_number) {
     GList *tmp;
 
-    if (demux->program_number == -1 && !is_valid_program (program))
+    if (demux->program_number == -1 && !is_valid_program (program, base->mode))
       return;
 
     GST_LOG ("program %d started", program->program_number);
@@ -1444,6 +1483,7 @@ process_section (MpegTSBase * base)
 
         if (G_LIKELY (section.complete)) {
           /* section complete */
+          GST_DEBUG ("Section complete");
           based = mpegts_base_handle_psi (base, &section);
           gst_buffer_unref (section.buffer);
 
