@@ -683,8 +683,10 @@ mpegts_base_is_psi (MpegTSBase * base, MpegTSPacketizerPacket * packet)
     0x72, 0x73, 0x7E, 0x7F, 0x82, 0x84, TABLE_ID_UNSET
   };
 
-  if (MPEGTS_BIT_IS_SET (base->known_psi, packet->pid))
+  if (packet->pid < 0x20 || MPEGTS_BIT_IS_SET (base->known_psi, packet->pid))
     retval = TRUE;
+  else
+    return FALSE;
 
   /* check is it is a pes pid */
   if (MPEGTS_BIT_IS_SET (base->is_pes, packet->pid))
