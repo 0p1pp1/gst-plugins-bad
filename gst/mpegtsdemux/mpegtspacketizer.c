@@ -262,13 +262,13 @@ mpegts_packetizer_parse_adaptation_field_control (MpegTSPacketizer2 *
   /* PCR */
   if (afcflags & MPEGTS_AFC_PCR_FLAG) {
     packet->pcr = mpegts_packetizer_compute_pcr (data);
-    *data += 6;
+    data += 6;
   }
 
   /* OPCR */
   if (afcflags & MPEGTS_AFC_OPCR_FLAG) {
     packet->opcr = mpegts_packetizer_compute_pcr (data);
-    *data += 6;
+    data += 6;
   }
 
   return TRUE;
