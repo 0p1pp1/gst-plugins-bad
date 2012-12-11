@@ -1712,6 +1712,7 @@ mpegts_packetizer_parse_eit (MpegTSPacketizer2 * packetizer,
             break;
           case 2:
             day = !(year % 4) && ((year % 100) || !(year % 400)) ? 29 : 28;
+            break;
           default:
             day = 30;
         }
