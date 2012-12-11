@@ -87,6 +87,10 @@ struct _GstTSDemux
   TSPcrOffset cur_pcr;
   TSPcrOffset index_pcr;
 
+  /* Pads for default streams */
+  GstPad *apad, *vpad, *spad;
+  gboolean apad_assigned, vpad_assigned, spad_assigned;
+
   /* bcas descrambling */
   gboolean          bcas_descramble;
   void *dm2_handle;

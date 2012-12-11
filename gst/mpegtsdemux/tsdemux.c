@@ -112,6 +112,7 @@ struct _TSDemuxStream
   MpegTSBaseStream stream;
 
   GstPad *pad;
+  GstPad *default_pad;
 
   enum
   {
@@ -1131,6 +1132,10 @@ push_event (MpegTSBase * base, GstEvent * event)
     if (stream->pad) {
       gst_event_ref (event);
       gst_pad_push_event (stream->pad, event);
+      if (stream->default_pad != NULL) {
+        gst_event_ref (event);
+        gst_pad_push_event (stream->default_pad, event);
+      }
     }
   }
 
@@ -1492,10 +1497,13 @@ gst_ts_demux_stream_removed (MpegTSBase * base, MpegTSBaseStream * bstream)
       GST_DEBUG_OBJECT (stream->pad, "Deactivating and removing pad");
       gst_pad_set_active (stream->pad, FALSE);
       gst_element_remove_pad (GST_ELEMENT_CAST (base), stream->pad);
-    }
+    } else
+      gst_object_unref (stream->pad);
     stream->pad = NULL;
   }
   stream->flow_return = GST_FLOW_NOT_LINKED;
+  stream->pts = GST_CLOCK_TIME_NONE;
+  GST_INFO ("remove pes:0x%04hx", bstream->pid);
 }
 
 static gboolean
@@ -1517,15 +1525,64 @@ is_selected_stream (GstTSDemux * tsdemux, TSDemuxStream * stream)
   return TRUE;
 }
 
+static GstPad *
+create_default_pad (GstTSDemux * tsdemux, const gchar * name)
+{
+  GstPad *pad;
+
+  pad = gst_pad_new (name, GST_PAD_SRC);
+  gst_pad_set_active (pad, TRUE);
+  gst_element_add_pad ((GstElement *) tsdemux, pad);
+  gst_pad_set_query_type_function (pad, gst_ts_demux_srcpad_query_types);
+  gst_pad_set_query_function (pad, gst_ts_demux_srcpad_query);
+  gst_object_ref (pad);
+  GST_DEBUG_OBJECT (pad, "done adding default-pad %s:%s",
+      GST_DEBUG_PAD_NAME (pad));
+  return pad;
+}
+
 static void
 activate_pad_for_stream (GstTSDemux * tsdemux, TSDemuxStream * stream)
 {
   if ((GST_MPEGTS_BASE (tsdemux))->mode == BASE_MODE_SCANNING)
     return;
 
+  stream->default_pad = NULL;
   if (stream->pad && is_selected_stream (tsdemux, stream)) {
-    GST_DEBUG_OBJECT (tsdemux, "Activating pad %s:%s for stream %p",
-        GST_DEBUG_PAD_NAME (stream->pad), stream);
+    GST_DEBUG_OBJECT (tsdemux, "Activating pad %s:%s for stream 0x%04hx",
+        GST_DEBUG_PAD_NAME (stream->pad), ((MpegTSBaseStream *) stream)->pid);
+
+    if (!tsdemux->apad_assigned && stream->pestype == PES_TYPE_AUDIO) {
+      if (G_UNLIKELY (tsdemux->apad == NULL))
+        tsdemux->apad = create_default_pad (tsdemux, "audio_0000");
+      stream->default_pad = tsdemux->apad;
+      GST_DEBUG ("attached default pad %s:%s",
+          GST_DEBUG_PAD_NAME (stream->default_pad));
+    } else if (!tsdemux->vpad_assigned && stream->pestype == PES_TYPE_VIDEO) {
+      if (G_UNLIKELY (tsdemux->vpad == NULL))
+        tsdemux->vpad = create_default_pad (tsdemux, "video_0000");
+      stream->default_pad = tsdemux->vpad;
+      GST_DEBUG ("attached default pad %s:%s",
+          GST_DEBUG_PAD_NAME (stream->default_pad));
+    } else if (!tsdemux->spad_assigned &&
+        stream->pestype == PES_TYPE_SUBPICTURE) {
+      if (G_UNLIKELY (tsdemux->spad == NULL))
+        tsdemux->spad = create_default_pad (tsdemux, "subpicture_0000");
+      stream->default_pad = tsdemux->spad;
+      GST_DEBUG ("attached default pad %s:%s",
+          GST_DEBUG_PAD_NAME (stream->default_pad));
+    }
+
+    if (stream->default_pad != NULL) {
+      GstCaps *caps;
+
+      caps = gst_pad_get_caps_reffed (stream->pad);
+      GST_DEBUG ("set caps:%" GST_PTR_FORMAT " for default pad %s:%s",
+          caps, GST_DEBUG_PAD_NAME (stream->default_pad));
+      gst_pad_set_caps (stream->default_pad, caps);
+      gst_caps_unref (caps);
+    }
+
     gst_pad_set_active (stream->pad, TRUE);
     gst_element_add_pad ((GstElement *) tsdemux, stream->pad);
     GST_DEBUG_OBJECT (stream->pad, "done adding pad");
@@ -1636,9 +1693,6 @@ activate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
 {
   MpegTSBase *base = GST_MPEGTS_BASE (demux);
 
-  GST_DEBUG ("Current program %d, new program %d",
-      demux->program_number, program->program_number);
-
   if (demux->program_number == -1 ||
       demux->program_number == program->program_number) {
     GList *tmp;
@@ -1682,11 +1736,19 @@ deactivate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
       else
         gst_object_unref (localstream->pad);
       localstream->pad = NULL;
+      if (localstream->default_pad != NULL)
+        GST_DEBUG ("detached default pad %s:%s",
+            GST_DEBUG_PAD_NAME (localstream->default_pad));
+      localstream->default_pad = NULL;
     }
   }
 
   demux->program = NULL;
   demux->select_state = SELECT_STATE_TEMPORARY;
+  demux->apad_assigned = FALSE;
+  demux->vpad_assigned = FALSE;
+  demux->spad_assigned = FALSE;
+  demux->need_newsegment = TRUE;
 }
 
 /* if demux->program_number has changed or should be set */
@@ -1797,8 +1859,10 @@ gst_ts_demux_program_stopped (MpegTSBase * base, MpegTSBaseProgram * program)
   GstTSDemux *demux = GST_TS_DEMUX (base);
 
   deactivate_program (demux, program);
+#if 0
   if (base->mode != BASE_MODE_SCANNING)
     select_program (demux);
+#endif
 }
 
 static void
@@ -2709,7 +2773,8 @@ gst_ts_demux_queue_data (GstTSDemux * demux, TSDemuxStream * stream,
   } else if (stream->state == PENDING_PACKET_BUFFER) {
     GST_LOG ("BUFFER: appending data to bufferlist");
     stream->currentlist = g_list_prepend (stream->currentlist, buf);
-  }
+  } else if (stream->state == PENDING_PACKET_DISCONT)
+    gst_buffer_unref (packet->buffer);
 
 
   return;
@@ -2845,7 +2910,14 @@ gst_ts_demux_push_pending_data (GstTSDemux * demux, TSDemuxStream * stream)
       GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (gst_buffer_list_get
               (stream->current, 0, 0))));
 
-  res = gst_pad_push_list (stream->pad, stream->current);
+  if (stream->default_pad != NULL)
+    res = gst_pad_push_list (stream->default_pad,
+        gst_buffer_list_copy (stream->current));
+  if (res == GST_FLOW_NOT_LINKED)
+    res = gst_pad_push_list (stream->pad, stream->current);
+  else
+    gst_pad_push_list (stream->pad, stream->current);
+
   GST_DEBUG_OBJECT (stream->pad, "Returned %s", gst_flow_get_name (res));
   res = tsdemux_combine_flows (demux, stream, res);
   GST_DEBUG_OBJECT (stream->pad, "combined %s", gst_flow_get_name (res));
