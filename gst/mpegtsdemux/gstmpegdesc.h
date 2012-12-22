@@ -321,7 +321,7 @@
 
 typedef struct {
   guint    n_desc;
-  guint8   data_length;
+  guint    data_length;
   guint8  *data;
 } GstMPEGDescriptor;
 
