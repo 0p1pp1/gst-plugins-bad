@@ -2919,14 +2919,14 @@ get_encoding_and_convert (const gchar * text, guint length)
 
   g_return_val_if_fail (text != NULL, NULL);
 
+  if (length == 0)
+    return g_strdup ("");
+
 #if ISDB
   if (1) {
     return aribstr_to_utf8 (text, length);
   }
 #endif
-
-  if (length == 0)
-    return g_strdup ("");
 
   encoding = get_encoding (text, &start_text, &is_multibyte);
 

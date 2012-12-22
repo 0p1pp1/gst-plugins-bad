@@ -763,7 +763,7 @@ mpegts_base_is_psi (MpegTSBase * base, MpegTSPacketizerPacket * packet)
   if (MPEGTS_BIT_IS_SET (base->is_pes, packet->pid))
     return FALSE;
 
-  if (!retval) {
+  if (!MPEGTS_BIT_IS_SET (base->known_psi, packet->pid)) {
     if (packet->payload_unit_start_indicator) {
       table_id = *(packet->data + *(packet->data) + 1);
       i = 0;

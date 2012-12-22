@@ -1526,15 +1526,29 @@ is_selected_stream (GstTSDemux * tsdemux, TSDemuxStream * stream)
 }
 
 static GstPad *
-create_default_pad (GstTSDemux * tsdemux, const gchar * name)
+create_default_pad (GstTSDemux * tsdemux, const gchar * name, GstPad * strm_pad)
 {
   GstPad *pad;
+  GstCaps *caps = NULL;
+  GstPadTemplate *template = NULL;
 
-  pad = gst_pad_new (name, GST_PAD_SRC);
-  gst_pad_set_active (pad, TRUE);
-  gst_element_add_pad ((GstElement *) tsdemux, pad);
+  if (g_str_has_prefix (name, "video_"))
+    template = gst_static_pad_template_get (&video_template);
+  else if (g_str_has_prefix (name, "audio_"))
+    template = gst_static_pad_template_get (&audio_template);
+  else
+    template = gst_static_pad_template_get (&subpicture_template);
+
+  caps = gst_pad_get_caps_reffed (strm_pad);
+  pad = gst_pad_new_from_template (template, name);
+  gst_pad_use_fixed_caps (pad);
+  gst_pad_set_caps (pad, caps);
+  gst_caps_unref (caps);
+
   gst_pad_set_query_type_function (pad, gst_ts_demux_srcpad_query_types);
   gst_pad_set_query_function (pad, gst_ts_demux_srcpad_query);
+  gst_pad_set_active (pad, TRUE);
+  gst_element_add_pad ((GstElement *) tsdemux, pad);
   gst_object_ref (pad);
   GST_DEBUG_OBJECT (pad, "done adding default-pad %s:%s",
       GST_DEBUG_PAD_NAME (pad));
@@ -1552,35 +1566,25 @@ activate_pad_for_stream (GstTSDemux * tsdemux, TSDemuxStream * stream)
     GST_DEBUG_OBJECT (tsdemux, "Activating pad %s:%s for stream 0x%04hx",
         GST_DEBUG_PAD_NAME (stream->pad), ((MpegTSBaseStream *) stream)->pid);
 
-    if (!tsdemux->apad_assigned && stream->pestype == PES_TYPE_AUDIO) {
+    if (stream->pestype == PES_TYPE_AUDIO) {
       if (G_UNLIKELY (tsdemux->apad == NULL))
-        tsdemux->apad = create_default_pad (tsdemux, "audio_0000");
+        tsdemux->apad = create_default_pad (tsdemux, "audio_0000", stream->pad);
       stream->default_pad = tsdemux->apad;
       GST_DEBUG ("attached default pad %s:%s",
           GST_DEBUG_PAD_NAME (stream->default_pad));
-    } else if (!tsdemux->vpad_assigned && stream->pestype == PES_TYPE_VIDEO) {
+    } else if (stream->pestype == PES_TYPE_VIDEO) {
       if (G_UNLIKELY (tsdemux->vpad == NULL))
-        tsdemux->vpad = create_default_pad (tsdemux, "video_0000");
+        tsdemux->vpad = create_default_pad (tsdemux, "video_0000", stream->pad);
       stream->default_pad = tsdemux->vpad;
       GST_DEBUG ("attached default pad %s:%s",
           GST_DEBUG_PAD_NAME (stream->default_pad));
-    } else if (!tsdemux->spad_assigned &&
-        stream->pestype == PES_TYPE_SUBPICTURE) {
+    } else if (stream->pestype == PES_TYPE_SUBPICTURE) {
       if (G_UNLIKELY (tsdemux->spad == NULL))
-        tsdemux->spad = create_default_pad (tsdemux, "subpicture_0000");
+        tsdemux->spad =
+            create_default_pad (tsdemux, "subpicture_0000", stream->pad);
       stream->default_pad = tsdemux->spad;
       GST_DEBUG ("attached default pad %s:%s",
           GST_DEBUG_PAD_NAME (stream->default_pad));
-    }
-
-    if (stream->default_pad != NULL) {
-      GstCaps *caps;
-
-      caps = gst_pad_get_caps_reffed (stream->pad);
-      GST_DEBUG ("set caps:%" GST_PTR_FORMAT " for default pad %s:%s",
-          caps, GST_DEBUG_PAD_NAME (stream->default_pad));
-      gst_pad_set_caps (stream->default_pad, caps);
-      gst_caps_unref (caps);
     }
 
     gst_pad_set_active (stream->pad, TRUE);
@@ -1748,7 +1752,7 @@ deactivate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
   demux->apad_assigned = FALSE;
   demux->vpad_assigned = FALSE;
   demux->spad_assigned = FALSE;
-  demux->need_newsegment = TRUE;
+  //demux->need_newsegment = TRUE;
 }
 
 /* if demux->program_number has changed or should be set */
@@ -2229,8 +2233,6 @@ find_timestamps (MpegTSBase * base, guint64 initoff, guint64 * offset)
   /* Remove current program so we ensure looking for a PAT when scanning the 
    * for the final PCR */
   mpegts_base_handle_psi (base, &reset_pat);
-  memset (base->is_pes, 0, 1024);
-  memset (base->known_psi, 0, 1024);
   MPEGTS_BIT_SET (base->known_psi, 0);
   demux->program = NULL;
 
@@ -2287,8 +2289,6 @@ beach:
   mpegts_packetizer_clear (base->packetizer);
   /* Remove current program & PAT */
   mpegts_base_handle_psi (base, &reset_pat);
-  memset (base->is_pes, 0, 1024);
-  memset (base->known_psi, 0, 1024);
   MPEGTS_BIT_SET (base->known_psi, 0);
   demux->program_number = prog_num_save;
   demux->program = NULL;
@@ -2355,6 +2355,7 @@ process_pcr (MpegTSBase * base, guint64 initoff, TSPcrOffset * pcroffset,
     if (offset == -1)
       continue;
 
+    // size -= offset;
     while ((nbpcr < numpcr) && (size >= base->packetsize)) {
 
       guint32 header = GST_READ_UINT32_BE (br.data + offset);
@@ -2449,7 +2450,7 @@ gst_ts_demux_record_pcr (GstTSDemux * demux, TSDemuxStream * stream,
     demux->cur_pcr.offset = offset;
     demux->cur_pcr.pcr = pcr;
     /* set first_pcr in push mode */
-    if (G_UNLIKELY (!demux->first_pcr.gsttime == GST_CLOCK_TIME_NONE)) {
+    if (G_UNLIKELY (demux->first_pcr.gsttime == GST_CLOCK_TIME_NONE)) {
       demux->first_pcr.gsttime = PCRTIME_TO_GSTTIME (pcr);
       demux->first_pcr.offset = offset;
       demux->first_pcr.pcr = pcr;

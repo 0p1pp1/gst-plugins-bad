@@ -455,7 +455,7 @@ aribstr_to_utf8 (const gchar * source, const guint len)
   g_string_append_c (euc_str, '\0');
 
   converted_str = g_convert_with_fallback (euc_str->str, euc_str->len,
-      "utf-8", "EUC-JISX0213", NULL, &used, NULL, NULL);
+      "utf-8", "EUC-JISX0213", "??", &used, NULL, NULL);
   if (!converted_str) {
     converted_str = g_strdup ("<charset conversion failed>");
   }

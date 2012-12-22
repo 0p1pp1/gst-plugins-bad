@@ -355,6 +355,9 @@ mpegts_parse_reset_selected_programs (MpegTSParse2 * parse,
     walk = progs;
     while (*walk != NULL) {
       program_number = strtol (*walk, NULL, 0);
+      ++walk;
+      if (program_number <= 0 || program_number > 0xFFFF)
+        continue;
       program =
           (MpegTSParseProgram *) mpegts_base_get_program ((MpegTSBase *) parse,
           program_number);
@@ -363,7 +366,6 @@ mpegts_parse_reset_selected_programs (MpegTSParse2 * parse,
         program = (MpegTSParseProgram *) mpegts_base_add_program ((MpegTSBase *)
             parse, program_number, G_MAXUINT16);
       program->selected = 2;
-      ++walk;
     }
     g_strfreev (progs);
   }
