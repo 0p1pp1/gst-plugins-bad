@@ -168,6 +168,14 @@ struct _GstMpegTSStream {
   guint16           PID;
   guint8            PID_type;
 
+  /* adaptation_field data */
+  guint64           last_PCR;
+  guint64           base_PCR;
+  guint64           last_OPCR;
+  guint64           last_PCR_difference;
+  gboolean          discont_PCR;
+  GstClockTimeDiff  discont_difference;
+
   /* for PAT streams */
   GstMpegTSPAT       PAT;
 
@@ -212,15 +220,17 @@ struct _GstMpegTSStream {
   GstPad            * pad;
   GstFlowReturn     last_ret;
   GstMPEGDescriptor *ES_info;
-
-  guint64           last_pts;
-  GstClockTime      segment_thresh;
-  GstClockTime      last_segment_start;
-
+  /* needed because 33bit mpeg timestamps wrap around every (approx) 26.5 hrs */
+  GstClockTimeDiff  base_time;
+  GstClockTime      last_time;
   /* pid of PMT that this stream belongs to */
   guint16           PMT_pid;
   gboolean          discont;
   gboolean          need_segment;
+
+  guint64           last_pts;
+  GstClockTime      segment_thresh;
+  GstClockTime      last_segment_start;
 
   /* pid of ECM that this stream belongs to */
   guint16           ECM_pid;
@@ -245,6 +255,8 @@ struct _GstMpegTSDemux {
 
   /* Array of MPEGTS_MAX_PID + 1 stream entries */
   GstMpegTSStream    **  streams;
+  /* Array to perform pmts checks at gst_mpegts_demux_parse_adaptation_field */
+  gboolean          pmts_checked[MPEGTS_MAX_PID + 1];
 
   /* Array of Elementary Stream pids for ts with PMT */
   guint16           * elementary_pids;
@@ -300,6 +312,8 @@ struct _GstMpegTSDemux {
   gboolean          tried_adding_pads;
 
   gboolean          in_flushing;
+
+  GstSegment        sink_segment;
 
   /* bcas descrambling */
   gboolean          bcas_descramble;
