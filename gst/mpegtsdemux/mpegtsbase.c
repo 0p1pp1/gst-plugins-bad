@@ -478,7 +478,8 @@ mpegts_base_add_program (MpegTSBase * base,
   program = mpegts_base_new_program (base, program_number, pmt_pid);
 
   /* Mark the PMT PID as being a known PSI PID */
-  MPEGTS_BIT_SET (base->known_psi, pmt_pid);
+  if (pmt_pid != G_MAXUINT16)
+    MPEGTS_BIT_SET (base->known_psi, pmt_pid);
 
   g_hash_table_insert (base->programs,
       GINT_TO_POINTER (program_number), program);
