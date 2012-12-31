@@ -2162,7 +2162,7 @@ gst_mpegts_stream_parse_pmt (GstMpegTSStream * stream,
     goto same_version;
 
   gst_mpegts_demux_remove_pads (demux);
-  gst_element_no_more_pads ((GstElement *) demux);
+  //gst_element_no_more_pads ((GstElement *) demux);
 
   PMT->version_number = version_number;
   PMT->current_next_indicator = current_next_indicator;
@@ -3742,16 +3742,10 @@ gst_mpegts_demux_flush (GstMpegTSDemux * demux, gboolean discard)
 
   GST_DEBUG_OBJECT (demux, "flushing MPEG TS demuxer (discard %d)", discard);
 
-  /* Start by flushing internal buffers */
-  gst_mpegts_demux_pes_buffer_flush (demux, discard);
-
   /* Clear adapter */
   gst_adapter_clear (demux->adapter);
   /* Start by flushing internal buffers */
   gst_mpegts_demux_pes_buffer_flush (demux, discard);
-
-  /* Clear adapter */
-  gst_adapter_clear (demux->adapter);
 
   /* Try resetting the last_PCR value as we will have a discont */
   if (demux->current_PMT == 0)
