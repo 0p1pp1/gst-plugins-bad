@@ -47,7 +47,6 @@ typedef struct
 {
   MpegTSBaseProgram program;
   gint selected;
-  gboolean active;
   MpegTSParsePad *tspad;
 } MpegTSParseProgram;
 
@@ -234,7 +233,6 @@ mpegts_parse_activate_program (MpegTSParse2 * parse,
   program->tspad = tspad;
   g_free (pad_name);
   gst_pad_set_active (tspad->pad, TRUE);
-  program->active = TRUE;
 
   return tspad->pad;
 }
@@ -263,7 +261,7 @@ mpegts_parse_deactivate_program (MpegTSParse2 * parse,
 
   tspad = program->tspad;
   gst_pad_set_active (tspad->pad, FALSE);
-  program->active = FALSE;
+  ((MpegTSBaseProgram *) program)->active = FALSE;
 
   /* tspad will be destroyed in GstElementClass::pad_removed */
 
@@ -311,7 +309,7 @@ foreach_program_activate_or_deactivate (gpointer key, gpointer value,
   switch (--program->selected) {
     case 1:
       /* selected */
-      if (!program->active
+      if (!((MpegTSBaseProgram *) program)->active
           && ((MpegTSBaseProgram *) program)->pmt_pid != G_MAXUINT16)
         parse->pads_to_add =
             g_list_append (parse->pads_to_add,
@@ -322,7 +320,7 @@ foreach_program_activate_or_deactivate (gpointer key, gpointer value,
       break;
     case 0:
       /* unselected */
-      if (program->active)
+      if (((MpegTSBaseProgram *) program)->active)
         parse->pads_to_remove = g_list_append (parse->pads_to_remove,
             mpegts_parse_deactivate_program (parse, program));
       break;
