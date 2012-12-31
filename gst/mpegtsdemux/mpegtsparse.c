@@ -471,6 +471,7 @@ mpegts_parse_tspad_push_section (MpegTSParse2 * parse, MpegTSParsePad * tspad,
   if (tspad->program_number != -1 && !tspad->program) {
     /* there's a program filter on the pad but the PMT for the program has not
      * been parsed yet, ignore the pad until we get a PMT */
+    GST_LOG ("PMT for prog:%hu not received yet", tspad->program_number);
     to_push = FALSE;
     ret = GST_FLOW_OK;
   }
@@ -481,11 +482,12 @@ mpegts_parse_tspad_push_section (MpegTSParse2 * parse, MpegTSParsePad * tspad,
      * as it means no one wants that program.
      */
     GList *progs = g_hash_table_get_values (((MpegTSBase *) parse)->programs);
+    GList *p;
 
-    while (progs) {
-      MpegTSBaseProgram *program = progs->data;
+    for (p = progs; p; p = p->next) {
+      MpegTSBaseProgram *program = p->data;
 
-      if (section->pid == program->pmt_pid || section->pid == program->pcr_pid) {
+      if (section->pid == program->pmt_pid) {
         to_push = (tspad->program_number != -1 &&
             tspad->program_number == program->program_number) ||
             (tspad->program_number == -1 &&
@@ -493,8 +495,6 @@ mpegts_parse_tspad_push_section (MpegTSParse2 * parse, MpegTSParsePad * tspad,
         if (to_push)
           break;
       }
-
-      progs = g_list_delete_link (progs, progs);
     }
 
     if (progs)
@@ -522,10 +522,13 @@ mpegts_parse_tspad_push (MpegTSParse2 * parse, MpegTSParsePad * tspad,
   GstFlowReturn ret = GST_FLOW_NOT_LINKED;
   MpegTSBaseStream **pad_pids = NULL;
 
+  GST_LOG ("tspad_push pid:0x%04hx prog:%p pnum:%d",
+      pid, tspad->program, tspad->program_number);
   if (tspad->program_number != -1) {
     if (tspad->program) {
       MpegTSBaseProgram *bp = (MpegTSBaseProgram *) tspad->program;
       pad_pids = bp->streams;
+      GST_LOG ("tspad->prog strms[pid]:%p", pad_pids[pid]);
       if (bp->tags) {
         gst_element_found_tags_for_pad (GST_ELEMENT_CAST (parse), tspad->pad,
             bp->tags);
@@ -586,17 +589,16 @@ mpegts_parse_push (MpegTSBase * base, MpegTSPacketizerPacket * packet,
 
   if (!section) {
     GList *progs = g_hash_table_get_values (base->programs);
+    GList *p;
 
-    while (progs) {
-      MpegTSBaseProgram *bp = progs->data;
+    for (p = progs; p; p = p->next) {
+      MpegTSBaseProgram *bp = p->data;
 
       if (((MpegTSParseProgram *) bp)->selected > 0 && bp->streams[pid])
         break;
-
-      progs = g_list_delete_link (progs, progs);
     }
 
-    if (!progs) {
+    if (!p) {
       // none of the selected programs contain the PES of this pid
       gst_buffer_unref (buffer);
       packet->buffer = NULL;
@@ -692,6 +694,7 @@ mpegts_parse_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
         mpegts_parse_activate_program (parse, parseprogram));
     parseprogram->selected = 1;
     parse->need_sync_program_pads = TRUE;
+    GST_LOG ("activated prog:%d", program->program_number);
   }
 
 }
