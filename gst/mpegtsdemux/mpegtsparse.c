@@ -704,12 +704,23 @@ mpegts_parse_program_stopped (MpegTSBase * base, MpegTSBaseProgram * program)
 {
   MpegTSParse2 *parse = GST_MPEGTS_PARSE (base);
   MpegTSParseProgram *parseprogram = (MpegTSParseProgram *) program;
+  MpegTSParseProgram *new_prog;
 
-  if (parseprogram->active) {
+  new_prog = (MpegTSParseProgram *)
+      mpegts_base_get_program (base, program->program_number);
+
+  if (!new_prog) {
     parse->pads_to_remove =
         g_list_append (parse->pads_to_remove,
         mpegts_parse_deactivate_program (parse, parseprogram));
     parse->need_sync_program_pads = TRUE;
+    GST_LOG ("deactivating prog:%d", program->program_number);
+  } else {
+    new_prog->tspad = parseprogram->tspad;
+    new_prog->selected = parseprogram->selected;
+    if (new_prog->tspad)
+      new_prog->tspad->program = new_prog;
+    GST_LOG ("re-newing prog:%d", program->program_number);
   }
 }
 
