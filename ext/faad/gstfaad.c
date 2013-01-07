@@ -443,12 +443,16 @@ gst_faad_set_format (GstAudioDecoder * dec, GstCaps * caps)
 
     gst_structure_get_boolean (str, "dualmono", &faad->is_dualmono);
 
-    if (gst_structure_get_int (str, "rate", &rate) &&
-        gst_structure_get_int (str, "channels", &channels)) {
+    if (gst_structure_get_int (str, "rate", &rate)) {
       gint rate_idx, profile;
 
+      channels = 0;
+      gst_structure_get_int (str, "channels", &channels);
       profile = 3;              /* 0=MAIN, 1=LC, 2=SSR, 3=LTP */
       rate_idx = aac_rate_idx (rate);
+
+      if (!gst_structure_has_field (str, "dualmono") && channels == 0)
+        faad->is_dualmono = TRUE;
 
       if (faad->is_dualmono && channels == 0)
         channels = 2;
@@ -579,6 +583,11 @@ gst_faad_update_caps (GstFaad * faad, faacDecFrameInfo * info)
   gboolean channel_map_failed;
   GstCaps *caps;
   gboolean fmt_change = FALSE;
+
+  if (info->channels == 2 && faad->is_dualmono) {
+    info->channel_position[0] = FRONT_CHANNEL_LEFT;
+    info->channel_position[1] = FRONT_CHANNEL_RIGHT;
+  }
 
   /* see if we need to renegotiate */
   if (info->samplerate != faad->samplerate ||
