@@ -75,6 +75,7 @@ struct _GstTSDemux
     SELECT_STATE_CERTAIN,
   } select_state;         /* how sure the progam is selected */
   gboolean need_newsegment;
+  gboolean update_segment;  /* PMT was updated. update @segment */
   /* Downstream segment */
   GstSegment segment;
   GstClockTime duration;	/* Total duration */

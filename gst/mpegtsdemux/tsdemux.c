@@ -1763,8 +1763,7 @@ activate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
       if (!demux->default_pads)
         gst_element_no_more_pads ((GstElement *) demux);
     }
-
-    demux->need_newsegment = TRUE;
+    //demux->need_newsegment = TRUE;
   }
 }
 
@@ -1772,28 +1771,41 @@ static void
 deactivate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
 {
   GList *tmp;
+  gboolean copy_stream;
+  MpegTSBaseProgram *bp;
 
   GST_LOG ("program %d stopped", program->program_number);
 
-  if (program != demux->program)
-    return;
+  bp = mpegts_base_get_program ((MpegTSBase *) demux, program->program_number);
+
+  copy_stream = bp && program != bp &&
+      program->program_number == bp->program_number;
 
   for (tmp = program->stream_list; tmp; tmp = tmp->next) {
     TSDemuxStream *localstream = (TSDemuxStream *) tmp->data;
 
-    if (localstream->pad) {
-      GST_DEBUG ("HAVE PAD %s:%s", GST_DEBUG_PAD_NAME (localstream->pad));
-      if (gst_pad_is_active (localstream->pad))
-        gst_element_remove_pad (GST_ELEMENT_CAST (demux), localstream->pad);
-      else
-        gst_object_unref (localstream->pad);
-      localstream->pad = NULL;
-      if (localstream->default_pad != NULL)
-        GST_DEBUG ("detached default pad %s:%s",
-            GST_DEBUG_PAD_NAME (localstream->default_pad));
-      localstream->default_pad = NULL;
+    if (copy_stream) {
+      MpegTSBaseStream *new, *old;
+
+      old = (MpegTSBaseStream *) localstream;
+      new = bp->streams[old->pid];
+      if (new && new->stream_type == old->stream_type) {
+        TSDemuxStream *s = (TSDemuxStream *) new;
+
+        GST_LOG ("re-using stream 0x%04hx", old->pid);
+
+        s->pts = localstream->pts;
+        s->dts = localstream->dts;
+        s->raw_pts = localstream->raw_pts;
+        s->raw_dts = localstream->raw_dts;
+        s->nb_pts_rollover = localstream->nb_pts_rollover;
+        s->nb_dts_rollover = localstream->nb_dts_rollover;
+      }
     }
   }
+
+  if (program != demux->program)
+    return;
 
   demux->program = NULL;
   demux->select_state = SELECT_STATE_TEMPORARY;
@@ -1801,6 +1813,7 @@ deactivate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
   demux->vpad_assigned = FALSE;
   demux->spad_assigned = FALSE;
   //demux->need_newsegment = TRUE;
+  memset (&demux->cur_pcr, 0, sizeof (demux->cur_pcr));
 }
 
 /* if demux->program_number has changed or should be set */
@@ -1901,8 +1914,10 @@ gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
   GST_DEBUG ("Current program %d, new program %d",
       demux->program_number, program->program_number);
 
-  if (demux->program == NULL)
-    select_program (demux);
+  if (demux->program)
+    demux->update_segment = TRUE;
+  demux->program = NULL;
+  select_program (demux);
 }
 
 static void
@@ -1911,10 +1926,8 @@ gst_ts_demux_program_stopped (MpegTSBase * base, MpegTSBaseProgram * program)
   GstTSDemux *demux = GST_TS_DEMUX (base);
 
   deactivate_program (demux, program);
-#if 0
-  if (base->mode != BASE_MODE_SCANNING)
+  if (base->mode != BASE_MODE_SCANNING && !demux->program)
     select_program (demux);
-#endif
 }
 
 static void
@@ -2834,9 +2847,15 @@ calculate_and_push_newsegment (GstTSDemux * demux, TSDemuxStream * stream)
 
   for (tmp = demux->program->stream_list; tmp; tmp = tmp->next) {
     TSDemuxStream *pstream = (TSDemuxStream *) tmp->data;
+    GstClockTime t;
 
-    if (!GST_CLOCK_TIME_IS_VALID (firstpts) || pstream->pts < firstpts)
-      firstpts = pstream->pts;
+    if (GST_CLOCK_TIME_IS_VALID (pstream->dts))
+      t = pstream->dts;
+    else
+      t = pstream->pts;
+
+    if (!GST_CLOCK_TIME_IS_VALID (firstpts) || t < firstpts)
+      firstpts = t;
   }
 
   if (base->mode == BASE_MODE_PUSHING) {
@@ -2879,6 +2898,21 @@ calculate_and_push_newsegment (GstTSDemux * demux, TSDemuxStream * stream)
     /* FIXME : This is not entirely correct. We should be using the PTS time
      * realm and not the PCR one. Doesn't matter *too* much if PTS/PCR values
      * aren't too far apart, but still.  */
+    /* TODO : support discontinuous PCR jump at PMT switch,
+     *        or concatenated/sparse TS. */
+    if (demux->update_segment) {
+      GstClockTime newstart;
+
+      if (demux->cur_pcr.pcr != 0)
+        newstart = calculate_gsttime (&demux->first_pcr, demux->cur_pcr.pcr);
+      else if (GST_CLOCK_TIME_IS_VALID (firstpts))
+        newstart = firstpts;
+      else
+        newstart = demux->first_pcr.gsttime;
+
+      demux->segment.start = newstart - demux->first_pcr.gsttime;
+      demux->segment.time = demux->segment.start;
+    }
     start = demux->first_pcr.gsttime + demux->segment.start;
     stop = demux->first_pcr.gsttime + demux->segment.duration;
     position = demux->segment.time;
@@ -2887,12 +2921,19 @@ calculate_and_push_newsegment (GstTSDemux * demux, TSDemuxStream * stream)
   GST_DEBUG ("new segment:   start: %" GST_TIME_FORMAT " stop: %"
       GST_TIME_FORMAT " time: %" GST_TIME_FORMAT, GST_TIME_ARGS (start),
       GST_TIME_ARGS (stop), GST_TIME_ARGS (position));
+  /* If you dare to send a newsegment event on each PMT switch,
+   * it should send an UPDATE newseg event to modify the segment->accum in
+   * the sink element properly.
+   *   cf. gstsegment.c::gst_segment_set_newsegment_full() 
+   */
   newsegmentevent =
-      gst_event_new_new_segment (FALSE, 1.0, GST_FORMAT_TIME, start, stop,
-      position);
+      gst_event_new_new_segment (demux->update_segment, 1.0, GST_FORMAT_TIME,
+      start, stop, position);
 
   push_event ((MpegTSBase *) demux, newsegmentevent);
+  gst_event_unref (newsegmentevent);
 
+  demux->update_segment = FALSE;
   demux->need_newsegment = FALSE;
 }
 
