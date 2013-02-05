@@ -411,7 +411,7 @@ gst_ts_demux_reset (MpegTSBase * base)
   }
   demux->index_size = 0;
   demux->need_newsegment = TRUE;
-  demux->program_number = -1;
+  //demux->program_number = -1;
   demux->duration = GST_CLOCK_TIME_NONE;
   gst_segment_init (&demux->segment, GST_FORMAT_TIME);
   demux->first_pcr = (TSPcrOffset) {
