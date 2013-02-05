@@ -221,6 +221,7 @@ enum
   PROP_VPID,
   PROP_SPID,
   PROP_BCAS_DESCRAMBLE,
+  PROP_DEFAULT_PADS,
   /* FILL ME */
 };
 
@@ -352,6 +353,10 @@ gst_ts_demux_class_init (GstTSDemuxClass * klass)
           "Defines if trying to descramble the BCAS scrambled input. "
           "BCAS is deployed in Japanese DTV.", TRUE, G_PARAM_READWRITE));
 
+  g_object_class_install_property (gobject_class, PROP_DEFAULT_PADS,
+      g_param_spec_boolean ("default-pads", "Use stable \"default\" pads",
+          "Use the fixed default pads for A/V/S even through PMT switches.",
+          FALSE, G_PARAM_READWRITE));
 
   GST_ELEMENT_CLASS (klass)->change_state = gst_ts_demux_change_state;
 
@@ -473,6 +478,11 @@ gst_ts_demux_set_property (GObject * object, guint prop_id,
       demux->bcas_descramble = onoff;
 #endif
       break;
+    case PROP_DEFAULT_PADS:
+      ret = gst_element_get_state (elem, &state, NULL, 0);
+      if (ret == GST_STATE_CHANGE_SUCCESS && state <= GST_STATE_READY)
+        demux->default_pads = g_value_get_boolean (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
   }
@@ -502,6 +512,9 @@ gst_ts_demux_get_property (GObject * object, guint prop_id,
       break;
     case PROP_BCAS_DESCRAMBLE:
       g_value_set_boolean (value, demux->bcas_descramble);
+      break;
+    case PROP_DEFAULT_PADS:
+      g_value_set_boolean (value, demux->default_pads);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1500,6 +1513,11 @@ gst_ts_demux_stream_removed (MpegTSBase * base, MpegTSBaseStream * bstream)
     } else
       gst_object_unref (stream->pad);
     stream->pad = NULL;
+
+    if (stream->default_pad != NULL)
+      GST_DEBUG ("detached default pad %s:%s",
+          GST_DEBUG_PAD_NAME (stream->default_pad));
+    stream->default_pad = NULL;
   }
   stream->flow_return = GST_FLOW_NOT_LINKED;
   stream->pts = GST_CLOCK_TIME_NONE;
@@ -1566,25 +1584,36 @@ activate_pad_for_stream (GstTSDemux * tsdemux, TSDemuxStream * stream)
     GST_DEBUG_OBJECT (tsdemux, "Activating pad %s:%s for stream 0x%04hx",
         GST_DEBUG_PAD_NAME (stream->pad), ((MpegTSBaseStream *) stream)->pid);
 
-    if (stream->pestype == PES_TYPE_AUDIO) {
+    if (!tsdemux->default_pads)
+      /* NOP. add a guard to the following clauses */ ;
+    else if (stream->pestype == PES_TYPE_AUDIO) {
       if (G_UNLIKELY (tsdemux->apad == NULL))
         tsdemux->apad = create_default_pad (tsdemux, "audio_0000", stream->pad);
-      stream->default_pad = tsdemux->apad;
-      GST_DEBUG ("attached default pad %s:%s",
-          GST_DEBUG_PAD_NAME (stream->default_pad));
+      if (!tsdemux->apad_assigned) {
+        stream->default_pad = tsdemux->apad;
+        tsdemux->apad_assigned = TRUE;
+        GST_DEBUG ("attached default pad %s:%s",
+            GST_DEBUG_PAD_NAME (stream->default_pad));
+      }
     } else if (stream->pestype == PES_TYPE_VIDEO) {
       if (G_UNLIKELY (tsdemux->vpad == NULL))
         tsdemux->vpad = create_default_pad (tsdemux, "video_0000", stream->pad);
-      stream->default_pad = tsdemux->vpad;
-      GST_DEBUG ("attached default pad %s:%s",
-          GST_DEBUG_PAD_NAME (stream->default_pad));
+      if (!tsdemux->vpad_assigned) {
+        stream->default_pad = tsdemux->vpad;
+        tsdemux->vpad_assigned = TRUE;
+        GST_DEBUG ("attached default pad %s:%s",
+            GST_DEBUG_PAD_NAME (stream->default_pad));
+      }
     } else if (stream->pestype == PES_TYPE_SUBPICTURE) {
       if (G_UNLIKELY (tsdemux->spad == NULL))
         tsdemux->spad =
             create_default_pad (tsdemux, "subpicture_0000", stream->pad);
-      stream->default_pad = tsdemux->spad;
-      GST_DEBUG ("attached default pad %s:%s",
-          GST_DEBUG_PAD_NAME (stream->default_pad));
+      if (!tsdemux->spad_assigned) {
+        stream->default_pad = tsdemux->spad;
+        tsdemux->spad_assigned = TRUE;
+        GST_DEBUG ("attached default pad %s:%s",
+            GST_DEBUG_PAD_NAME (stream->default_pad));
+      }
     }
 
     gst_pad_set_active (stream->pad, TRUE);
@@ -1701,19 +1730,22 @@ activate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
       demux->program_number == program->program_number) {
     GList *tmp;
 
-    if (demux->program_number == -1 &&
-       !is_valid_program (demux, program, NULL))
+    if (demux->program_number == -1 && !is_valid_program (demux, program, NULL))
       return;
 
     GST_LOG ("program %d started", program->program_number);
     demux->program_number = program->program_number;
     demux->program = program;
 
+    demux->apad_assigned = FALSE;
+    demux->vpad_assigned = FALSE;
+    demux->spad_assigned = FALSE;
     /* Activate all stream pads, pads will already have been created */
     if (base->mode != BASE_MODE_SCANNING) {
       for (tmp = program->stream_list; tmp; tmp = tmp->next)
         activate_pad_for_stream (demux, (TSDemuxStream *) tmp->data);
-      gst_element_no_more_pads ((GstElement *) demux);
+      if (!demux->default_pads)
+        gst_element_no_more_pads ((GstElement *) demux);
     }
 
     demux->need_newsegment = TRUE;
