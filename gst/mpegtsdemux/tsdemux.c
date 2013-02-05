@@ -1443,9 +1443,18 @@ create_pad_for_stream (MpegTSBase * base, MpegTSBaseStream * bstream,
       break;
   }
   if (template && name && caps) {
+    pad = gst_element_get_static_pad (GST_ELEMENT_CAST (base), name);
+    if (pad) {
+      gchar *tmp = name;
+      name = g_strconcat (name, "_", NULL);
+      gst_object_unref ((GstObject *) pad);
+      g_free (tmp);
+    }
     GST_LOG ("stream:%p creating pad with name %s and caps %s", stream, name,
         gst_caps_to_string (caps));
     pad = gst_pad_new_from_template (template, name);
+    if (!pad)
+      GST_INFO ("failed to create pad with name %s", name);
     gst_pad_use_fixed_caps (pad);
     gst_pad_set_caps (pad, caps);
     gst_pad_set_query_type_function (pad, gst_ts_demux_srcpad_query_types);
