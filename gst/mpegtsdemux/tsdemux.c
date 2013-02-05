@@ -225,6 +225,8 @@ enum
   /* FILL ME */
 };
 
+static MpegTSPacketizerSection reset_pat = { 0 };
+
 /* Pad functions */
 static const GstQueryType *gst_ts_demux_srcpad_query_types (GstPad * pad);
 static gboolean gst_ts_demux_srcpad_query (GstPad * pad, GstQuery * query);
@@ -526,7 +528,9 @@ gst_ts_demux_change_state (GstElement * element, GstStateChange transition)
 {
   GstStateChangeReturn ret;
   GstTSDemux *demux;
+  MpegTSBase *base;
 
+  base = GST_MPEGTS_BASE (element);
   demux = GST_TS_DEMUX (element);
 
   switch (transition) {
@@ -552,19 +556,20 @@ gst_ts_demux_change_state (GstElement * element, GstStateChange transition)
         buf[11] = 0xa0;
       }
       break;
-    default:
-      break;
-  }
-
-  ret = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
-
-  switch (transition) {
     case GST_STATE_CHANGE_PAUSED_TO_READY:
 #if CONFIG_DEMULTI2
       if (demux->bcas_descramble && demux->dm2_handle)
         demulti2_close (demux->dm2_handle);
       demux->dm2_handle = NULL;
 #endif
+
+      if (base->pat && reset_pat.buffer) {
+        base->mode = BASE_MODE_SCANNING;
+        mpegts_packetizer_clear (base->packetizer);
+        mpegts_base_handle_psi (base, &reset_pat);
+        gst_buffer_unref (reset_pat.buffer);
+        reset_pat.buffer = NULL;
+      }
 
       if (base->pat && reset_pat.buffer) {
         base->mode = BASE_MODE_SCANNING;
@@ -601,6 +606,8 @@ gst_ts_demux_change_state (GstElement * element, GstStateChange transition)
     default:
       break;
   }
+
+  ret = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
 
   return ret;
 }
@@ -2209,26 +2216,9 @@ find_timestamps (MpegTSBase * base, guint64 initoff, guint64 * offset)
   guint i = 0;
   TSPcrOffset initial, final;
   GstTSDemux *demux = GST_TS_DEMUX (base);
-  static MpegTSPacketizerSection reset_pat = { 0 };
   guint prog_num_save;
 
   GST_DEBUG ("Scanning for timestamps");
-
-  if (reset_pat.buffer == NULL) {
-    guint8 *buf;
-
-    /* make an empty PAT, used for resetting */
-    reset_pat.buffer = gst_buffer_new_and_alloc (12);
-    buf = GST_BUFFER_DATA (reset_pat.buffer);
-    memset (buf, 0, GST_BUFFER_SIZE (reset_pat.buffer));
-    buf[1] = 0xb0;
-    buf[2] = 9;
-    buf[5] = 0xc1;
-    buf[8] = 0x33;
-    buf[9] = 0x4f;
-    buf[10] = 0xf8;
-    buf[11] = 0xa0;
-  }
 
   /* Flush what remained from before */
   mpegts_packetizer_clear (base->packetizer);
