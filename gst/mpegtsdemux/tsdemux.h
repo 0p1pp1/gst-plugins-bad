@@ -87,6 +87,7 @@ struct _GstTSDemux
   TSPcrOffset last_pcr;
   TSPcrOffset cur_pcr;
   TSPcrOffset index_pcr;
+  guint64 byterate;
 
   /* Pads for default streams */
   GstPad *apad, *vpad, *spad;

@@ -1763,7 +1763,7 @@ activate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
       if (!demux->default_pads)
         gst_element_no_more_pads ((GstElement *) demux);
     }
-    //demux->need_newsegment = TRUE;
+    demux->need_newsegment = TRUE;
   }
 }
 
@@ -1773,6 +1773,7 @@ deactivate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
   GList *tmp;
   gboolean copy_stream;
   MpegTSBaseProgram *bp;
+  GstClockTime maxpts;
 
   GST_LOG ("program %d stopped", program->program_number);
 
@@ -1781,6 +1782,7 @@ deactivate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
   copy_stream = bp && program != bp &&
       program->program_number == bp->program_number;
 
+  maxpts = GST_CLOCK_TIME_NONE;
   for (tmp = program->stream_list; tmp; tmp = tmp->next) {
     TSDemuxStream *localstream = (TSDemuxStream *) tmp->data;
 
@@ -1802,6 +1804,24 @@ deactivate_program (GstTSDemux * demux, MpegTSBaseProgram * program)
         s->nb_dts_rollover = localstream->nb_dts_rollover;
       }
     }
+
+    if (GST_CLOCK_TIME_IS_VALID (localstream->pts))
+      if (!GST_CLOCK_TIME_IS_VALID (maxpts) || maxpts < localstream->pts)
+        maxpts = localstream->pts;
+  }
+
+  if (GST_CLOCK_TIME_IS_VALID (demux->last_pcr.gsttime))
+    if (!GST_CLOCK_TIME_IS_VALID (maxpts) || maxpts < demux->last_pcr.gsttime)
+      maxpts = demux->last_pcr.gsttime;
+  if (GST_CLOCK_TIME_IS_VALID (maxpts) &&
+      ((MpegTSBase *) demux)->mode != BASE_MODE_SCANNING) {
+    GstEvent *ev;
+
+    GST_DEBUG ("closing segment at %" GST_TIME_FORMAT, GST_TIME_ARGS (maxpts));
+    ev = gst_event_new_new_segment (TRUE, 1.0, GST_FORMAT_TIME,
+        maxpts, maxpts, maxpts - demux->first_pcr.gsttime);
+    push_event ((MpegTSBase *) demux, ev);
+    gst_event_unref (ev);
   }
 
   if (program != demux->program)
@@ -2179,6 +2199,19 @@ verify_timestamps (MpegTSBase * base, TSPcrOffset * first, TSPcrOffset * last)
       GST_TIME_ARGS (first->gsttime),
       GST_TIME_ARGS (PCRTIME_TO_GSTTIME (first->pcr)), first->offset,
       GST_TIME_ARGS (PCRTIME_TO_GSTTIME (last->pcr)), last->offset);
+  demux->last_pcr.gsttime = GST_CLOCK_TIME_NONE;
+  demux->last_pcr.pcr = 0;
+
+  if (demux->byterate && last->offset != first->offset) {
+    guint64 rate_x10;
+
+    rate_x10 = gst_util_uint64_scale (10 * demux->byterate,
+        (calculate_gsttime (first, last->pcr) - first->gsttime) / GST_SECOND,
+        last->offset - first->offset);
+    GST_DEBUG ("estimated length /real length = %d/10", (int) rate_x10);
+    if (rate_x10 < 7 || rate_x10 >= 13)
+      return FALSE;
+  }
 
   while (offset + length < last->offset) {
     TSPcrOffset half;
@@ -2197,6 +2230,11 @@ verify_timestamps (MpegTSBase * base, TSPcrOffset * first, TSPcrOffset * last)
       return FALSE;
     }
 
+    if (half.pcr < first->pcr && first->pcr - half.pcr < PCR_MAX_VALUE / 2) {
+      GST_INFO ("found a bogus PCR value %" GST_TIME_FORMAT
+          " offset %" G_GUINT64_FORMAT, GST_TIME_ARGS (half.pcr), half.offset);
+      break;
+    }
     half.gsttime = calculate_gsttime (first, half.pcr);
 
     GST_DEBUG ("add half time: %" GST_TIME_FORMAT " pcr: %" GST_TIME_FORMAT
@@ -2320,7 +2358,8 @@ find_timestamps (MpegTSBase * base, guint64 initoff, guint64 * offset)
     goto beach;
   }
 
-  verify_timestamps (base, &initial, &final);
+  if (!verify_timestamps (base, &initial, &final))
+    goto beach;
 
   gst_segment_set_duration (&demux->segment, GST_FORMAT_TIME,
       demux->last_pcr.gsttime - demux->first_pcr.gsttime);
@@ -2460,12 +2499,17 @@ beach:
       pcroffset->offset = pcroffs[nbpcr - 1];
     }
     if (nbpcr > 1) {
+      guint64 byterate;
+
       GST_DEBUG ("pcrdiff:%" GST_TIME_FORMAT " offsetdiff %" G_GUINT64_FORMAT,
           GST_TIME_ARGS (PCRTIME_TO_GSTTIME (pcrs[nbpcr - 1] - pcrs[0])),
           pcroffs[nbpcr - 1] - pcroffs[0]);
-      GST_DEBUG ("Estimated bitrate %" G_GUINT64_FORMAT,
+      byterate =
           gst_util_uint64_scale (GST_SECOND, pcroffs[nbpcr - 1] - pcroffs[0],
-              PCRTIME_TO_GSTTIME (pcrs[nbpcr - 1] - pcrs[0])));
+          PCRTIME_TO_GSTTIME (pcrs[nbpcr - 1] - pcrs[0]));
+      GST_DEBUG ("Estimated bitrate %" G_GUINT64_FORMAT, byterate);
+      if (isinitial)
+        demux->byterate = byterate;
       GST_DEBUG ("Average PCR interval %" G_GUINT64_FORMAT,
           (pcroffs[nbpcr - 1] - pcroffs[0]) / nbpcr);
     }
@@ -2476,8 +2520,45 @@ beach:
   return ret;
 }
 
+static void
+close_segment (GstTSDemux * demux)
+{
+  GList *tmp;
+  GstClockTime maxpts;
 
+  maxpts = GST_CLOCK_TIME_NONE;
+  for (tmp = demux->program->stream_list; tmp; tmp = tmp->next) {
+    TSDemuxStream *stream = (TSDemuxStream *) tmp->data;
 
+    gst_ts_demux_push_pending_data (demux, stream);
+
+    if (GST_CLOCK_TIME_IS_VALID (stream->pts))
+      if (!GST_CLOCK_TIME_IS_VALID (maxpts) || maxpts < stream->pts)
+        maxpts = stream->pts;
+
+    stream->pts = GST_CLOCK_TIME_NONE;
+    stream->dts = GST_CLOCK_TIME_NONE;
+    stream->nb_pts_rollover = 0;
+    stream->nb_dts_rollover = 0;
+  }
+
+  if (GST_CLOCK_TIME_IS_VALID (demux->last_pcr.gsttime))
+    if (!GST_CLOCK_TIME_IS_VALID (maxpts) || maxpts < demux->last_pcr.gsttime)
+      maxpts = demux->last_pcr.gsttime;
+
+  if (GST_CLOCK_TIME_IS_VALID (maxpts) &&
+      ((MpegTSBase *) demux)->mode != BASE_MODE_SCANNING) {
+    GstEvent *ev;
+
+    GST_DEBUG ("closing segment at %" GST_TIME_FORMAT, GST_TIME_ARGS (maxpts));
+    ev = gst_event_new_new_segment (TRUE, 1.0, GST_FORMAT_TIME,
+        maxpts, maxpts, maxpts - demux->first_pcr.gsttime);
+    push_event ((MpegTSBase *) demux, ev);
+    gst_event_unref (ev);
+  }
+  demux->update_segment = TRUE;
+  demux->need_newsegment = TRUE;
+}
 
 static inline void
 gst_ts_demux_record_pcr (GstTSDemux * demux, TSDemuxStream * stream,
@@ -2490,6 +2571,14 @@ gst_ts_demux_record_pcr (GstTSDemux * demux, TSDemuxStream * stream,
       GST_TIME_ARGS (PCRTIME_TO_GSTTIME (pcr)), offset);
 
   if (G_LIKELY (bs->pid == demux->program->pcr_pid)) {
+    if (demux->cur_pcr.pcr != 0 &&
+        calculate_gsttime (&demux->cur_pcr, pcr) - demux->cur_pcr.gsttime >
+        10 * GST_SECOND) {
+      GST_WARNING ("PCR jump from %" GST_TIME_FORMAT " to " GST_TIME_FORMAT,
+          GST_TIME_ARGS (demux->cur_pcr.pcr), GST_TIME_ARGS (pcr));
+      close_segment (demux);
+    }
+
     demux->cur_pcr.gsttime = GST_CLOCK_TIME_NONE;
     demux->cur_pcr.offset = offset;
     demux->cur_pcr.pcr = pcr;
@@ -2547,6 +2636,15 @@ gst_ts_demux_record_pts (GstTSDemux * demux, TSDemuxStream * stream,
   if (G_UNLIKELY (GST_CLOCK_TIME_IS_VALID (stream->pts) &&
           ABSDIFF (stream->raw_pts, pts) > 900000)) {
     /* Detect rollover if diff > 10s */
+    /* diff should be large enough at rollover/rollback, */
+    /* otherwise, the TS is discontinous/sparse and not rollover/back */
+    if (ABSDIFF (stream->raw_pts, pts) < PTS_DTS_MAX_VALUE - 900000) {
+      GST_WARNING ("Detected PTS jump from %" GST_TIME_FORMAT " to "
+          GST_TIME_FORMAT, GST_TIME_ARGS (stream->raw_pts),
+          GST_TIME_ARGS (pts));
+      close_segment (demux);
+      goto set_pts;
+    }
     GST_LOG ("Detected rollover (previous:%" G_GUINT64_FORMAT " new:%"
         G_GUINT64_FORMAT ")", stream->raw_pts, pts);
     if (pts < stream->raw_pts) {
@@ -2560,6 +2658,7 @@ gst_ts_demux_record_pts (GstTSDemux * demux, TSDemuxStream * stream,
     }
   }
 
+set_pts:
   /* Compute PTS in GstClockTime */
   stream->raw_pts = pts;
   stream->pts =
@@ -2593,6 +2692,15 @@ gst_ts_demux_record_dts (GstTSDemux * demux, TSDemuxStream * stream,
   if (G_UNLIKELY (GST_CLOCK_TIME_IS_VALID (stream->dts) &&
           ABSDIFF (stream->raw_dts, dts) > 900000)) {
     /* Detect rollover if diff > 10s */
+    /* diff should be large enough at rollover/rollback, */
+    /* otherwise, the TS is discontinous/sparse and not rollover/back */
+    if (ABSDIFF (stream->raw_dts, dts) < PTS_DTS_MAX_VALUE - 900000) {
+      GST_WARNING ("Detected DTS jump from %" GST_TIME_FORMAT " to "
+          GST_TIME_FORMAT, GST_TIME_ARGS (stream->raw_dts),
+          GST_TIME_ARGS (dts));
+      close_segment (demux);
+      goto set_dts;
+    }
     GST_LOG ("Detected rollover (previous:%" G_GUINT64_FORMAT " new:%"
         G_GUINT64_FORMAT ")", stream->raw_dts, dts);
     if (dts < stream->raw_dts) {
@@ -2606,6 +2714,7 @@ gst_ts_demux_record_dts (GstTSDemux * demux, TSDemuxStream * stream,
     }
   }
 
+set_dts:
   /* Compute DTS in GstClockTime */
   stream->raw_dts = dts;
   stream->dts =
@@ -2914,7 +3023,10 @@ calculate_and_push_newsegment (GstTSDemux * demux, TSDemuxStream * stream)
       demux->segment.time = demux->segment.start;
     }
     start = demux->first_pcr.gsttime + demux->segment.start;
-    stop = demux->first_pcr.gsttime + demux->segment.duration;
+    if (GST_CLOCK_TIME_IS_VALID (demux->segment.duration))
+      stop = demux->first_pcr.gsttime + demux->segment.duration;
+    else
+      stop = GST_CLOCK_TIME_NONE;
     position = demux->segment.time;
   }
 
