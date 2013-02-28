@@ -129,6 +129,38 @@ static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE ("src",
     GST_STATIC_CAPS (STATIC_CAPS)
     );
 
+enum
+{
+  ARG_0,
+  PROP_DMONO_MODE,
+  /* FILL ME */
+};
+
+/* define gtype for "dualmono-mode" property */
+
+#define GST_TYPE_FAAD_DMONO_MODE (gst_faad_dmono_mode_get_type ())
+
+static GType
+gst_faad_dmono_mode_get_type (void)
+{
+  static GType gst_faad_dmono_mode_type = 0;
+
+  if (!gst_faad_dmono_mode_type) {
+    static const GEnumValue mode_values[] = {
+      {GST_FAAD_DUALMONO_MAIN, "Decode main/L channel", "main"},
+      {GST_FAAD_DUALMONO_SUB, "Decode sub/R channel", "sub"},
+      {GST_FAAD_DUALMONO_BOTH, "Decode both channels", "both"},
+      {0, NULL, NULL},
+    };
+
+    gst_faad_dmono_mode_type =
+        g_enum_register_static ("GstFaadDMonoMode", mode_values);
+  }
+
+  return gst_faad_dmono_mode_type;
+}
+
+
 static void gst_faad_reset (GstFaad * faad);
 
 static gboolean gst_faad_start (GstAudioDecoder * dec);
@@ -143,6 +175,11 @@ static void gst_faad_flush (GstAudioDecoder * dec, gboolean hard);
 static gboolean gst_faad_open_decoder (GstFaad * faad);
 static void gst_faad_close_decoder (GstFaad * faad);
 
+static void gst_faad_get_property (GObject * object, guint prop_id,
+    GValue * value, GParamSpec * pspec);
+static void gst_faad_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec);
+
 #define gst_faad_parent_class parent_class
 G_DEFINE_TYPE (GstFaad, gst_faad, GST_TYPE_AUDIO_DECODER);
 
@@ -151,6 +188,16 @@ gst_faad_class_init (GstFaadClass * klass)
 {
   GstElementClass *element_class = GST_ELEMENT_CLASS (klass);
   GstAudioDecoderClass *base_class = GST_AUDIO_DECODER_CLASS (klass);
+  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+
+  gobject_class->get_property = gst_faad_get_property;
+  gobject_class->set_property = gst_faad_set_property;
+
+  g_object_class_install_property (gobject_class, PROP_DMONO_MODE,
+      g_param_spec_enum ("dualmono-mode", "Dual mono decode mode",
+          "Which sub-channel of dual mono audio to decode. ",
+          GST_TYPE_FAAD_DMONO_MODE, GST_FAAD_DUALMONO_MAIN,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   gst_element_class_add_pad_template (element_class,
       gst_static_pad_template_get (&src_template));
@@ -170,6 +217,38 @@ gst_faad_class_init (GstFaadClass * klass)
   base_class->flush = GST_DEBUG_FUNCPTR (gst_faad_flush);
 
   GST_DEBUG_CATEGORY_INIT (faad_debug, "faad", 0, "AAC decoding");
+}
+
+static void
+gst_faad_get_property (GObject * object, guint prop_id,
+    GValue * value, GParamSpec * pspec)
+{
+  GstFaad *faad = GST_FAAD (object);
+
+  switch (prop_id) {
+    case PROP_DMONO_MODE:
+      g_value_set_enum (value, g_atomic_int_get (&faad->dualmono_mode));
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+static void
+gst_faad_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  GstFaad *faad = GST_FAAD (object);
+
+  switch (prop_id) {
+    case PROP_DMONO_MODE:
+      g_atomic_int_set (&faad->dualmono_mode, g_value_get_enum (value));
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
 }
 
 static void
@@ -731,6 +810,9 @@ init:
 
   do {
     GstMapInfo omap;
+    gint dmono_mode;
+
+    dmono_mode = g_atomic_int_get (&faad->dualmono_mode);
 
     if (!faad->packetised) {
       /* faad only really parses ADTS header at Init time, not when decoding,
@@ -788,6 +870,21 @@ init:
             dest[faad->reorder_map[j]] = *src++;
           }
           dest += channels;
+        }
+      } else if (dmono_mode != GST_FAAD_DUALMONO_BOTH &&
+          channels == 2 && info.header_type == ADTS &&
+          (GST_READ_UINT32_BE (input_data) & 0x1C0) == 0) {
+        /* ISDB dual mono. channelConfig == 0, channels == 2 */
+        int i;
+        gint16 *dest, *src, val;
+
+        dest = (gint16 *) omap.data;
+        src = (gint16 *) out;
+        for (i = 0; i < samples; i++) {
+          val = src[(dmono_mode == GST_FAAD_DUALMONO_SUB)];
+          *dest++ = val;
+          *dest++ = val;
+          src += 2;
         }
       } else {
         memcpy (omap.data, out, omap.size);
