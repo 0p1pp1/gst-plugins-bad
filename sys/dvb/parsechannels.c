@@ -211,11 +211,38 @@ set_properties_for_channel (GstElement * dvbbasebin,
 {
   gboolean ret = FALSE;
   GHashTable *channels, *params;
-  gchar *filename;
+  gchar *filename = NULL;
   gchar *type;
-  const gchar *adapter;
+  const gchar *adapter = NULL;
+  gchar *frontend = NULL;
+  gchar **tokens, **args, **options = NULL;
 
-  filename = g_strdup (g_getenv ("GST_DVB_CHANNELS_CONF"));
+  tokens = g_strsplit (channel_name, "@", 2);
+  if (g_strv_length (tokens) == 2) {
+    adapter = tokens[0];
+    channel_name = tokens[1];
+  }
+
+  args = g_strsplit (channel_name, "?", 2);
+  if (g_strv_length (args) == 2) {
+    gchar **p;
+
+    channel_name = args[0];
+    options = g_strsplit (args[1], "&", 0);
+    for (p = options; p && *p; p++) {
+      if (g_str_has_prefix (*p, "card="))
+        adapter = (*p) + 5;
+      else if (g_str_has_prefix (*p, "adapter="))
+        adapter = (*p) + 8;
+      else if (g_str_has_prefix (*p, "file="))
+        filename = g_strdup ((*p) + 5);
+      else if (g_str_has_prefix (*p, "frontend="))
+        frontend = (*p) + 9;
+    }
+  }
+
+  if (filename == NULL)
+    filename = g_strdup (g_getenv ("GST_DVB_CHANNELS_CONF"));
   if (filename == NULL) {
     filename = g_build_filename (g_get_user_config_dir (),
         "gstreamer-" GST_API_VERSION, "dvb-channels.conf", NULL);
@@ -234,9 +261,12 @@ set_properties_for_channel (GstElement * dvbbasebin,
   g_object_set (dvbbasebin, "program-numbers",
       g_hash_table_lookup (params, "sid"), NULL);
   /* check if it is terrestrial or satellite */
-  adapter = g_getenv ("GST_DVB_ADAPTER");
+  if (adapter == NULL)
+    adapter = g_getenv ("GST_DVB_ADAPTER");
   if (adapter)
     g_object_set (dvbbasebin, "adapter", atoi (adapter), NULL);
+  if (frontend)
+    g_object_set (dvbbasebin, "frontend", atoi (frontend), NULL);
   if (g_hash_table_contains (params, "frequency"))
     g_object_set (dvbbasebin, "frequency",
         atoi (g_hash_table_lookup (params, "frequency")), NULL);
@@ -461,6 +491,10 @@ set_properties_for_channel (GstElement * dvbbasebin,
   destroy_channels_hash (channels);
 
 beach:
+
+  g_strfreev (options);
+  g_strfreev (args);
+  g_strfreev (tokens);
   return ret;
 
 unknown_channel:
@@ -469,6 +503,9 @@ unknown_channel:
     g_set_error (error, GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_NOT_FOUND,
         _("Couldn't find details for DVB channel %s"), channel_name);
     destroy_channels_hash (channels);
+    g_strfreev (options);
+    g_strfreev (args);
+    g_strfreev (tokens);
     return FALSE;
   }
 }
