@@ -602,6 +602,7 @@ mpegts_parse_push (MpegTSBase * base, MpegTSPacketizerPacket * packet,
       // none of the selected programs contain the PES of this pid
       gst_buffer_unref (buffer);
       packet->buffer = NULL;
+      g_list_free (progs);
       return GST_FLOW_OK;
     }
     g_list_free (progs);
