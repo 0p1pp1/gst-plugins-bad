@@ -331,17 +331,17 @@ aribstr_to_utf8 (const gchar * source, const guint len)
         state.gl = 1;
         continue;
         break;
+      case 0x0A:               /* LF ?? */
+      case 0x0D:               /* CR */
+        state = state_def;      /* fall through */
       case 0x07:               /* BELL */
       case 0x08:               /* BS */
       case 0x09:               /* HT */
-      case 0x0A:               /* LF ?? */
-      case 0x0D:               /* CR */
       case 0x20:               /* SPACE */
       case 0x7F:               /* DEL */
-      case '\xA0':
+      case '\xA0':             /* NBSP */
       case '\xFF':
         mode = NORMAL;
-        state = state_def;
         g_string_append_c (euc_str, source[i] & 0x7F);
         continue;
         break;
