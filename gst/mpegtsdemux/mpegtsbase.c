@@ -861,6 +861,7 @@ mpegts_base_apply_pat (MpegTSBase * base, GstStructure * pat_info)
     }
     /* We mark this program as being referenced by one PAT */
     program->patcount += 1;
+    GST_LOG ("prog:%d count:%d", program->program_number, program->patcount);
   }
 
   if (old_pat) {
@@ -939,6 +940,7 @@ mpegts_base_apply_pmt (MpegTSBase * base,
   if (old_program->active) {
     old_program = mpegts_base_steal_program (base, program_number);
     program = mpegts_base_new_program (base, program_number, pmt_pid);
+    program->patcount = old_program->patcount;
     g_hash_table_insert (base->programs,
         GINT_TO_POINTER (program_number), program);
     deactivate_old_program = TRUE;
