@@ -919,7 +919,6 @@ mpegts_base_handle_psi (MpegTSBase * base, GstMpegTsSection * section)
   if (post_message)
     gst_element_post_message (GST_ELEMENT_CAST (base),
         gst_message_new_mpegts_section (GST_OBJECT (base), section));
-  gst_mpegts_section_unref (section);
 }
 
 
