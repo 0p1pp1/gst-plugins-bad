@@ -187,6 +187,8 @@ mpegts_base_reset (MpegTSBase * base)
   MPEGTS_BIT_SET (base->known_psi, 0);
   MPEGTS_BIT_SET (base->known_psi, 2);
   MPEGTS_BIT_SET (base->known_psi, 3);
+  /* EIT for ISDB */
+  MPEGTS_BIT_SET (base->known_psi, 0x12);
   /* TDT, TOT, ST */
   MPEGTS_BIT_SET (base->known_psi, 0x14);
   /* network synchronization */
