@@ -91,6 +91,40 @@ _parse_utc_time (guint8 * data)
 
   /* Time is UTC */
   if (hour < 24 && minute < 60 && second < 60) {
+    /* TODO: introduce a flag to control JST->UTC conversion */
+#define ISDB 1
+#if ISDB
+    /* In ISDB-T/S, JST is used */
+    /* adjust to UTC here */
+    if (hour < 9) {
+      hour += 15;
+      day--;
+    } else
+      hour -= 9;
+
+    if (day == 0)
+      switch (--month) {
+        case 0:
+          day = 31;
+          month = 12;
+          year--;
+          break;
+        case 1:
+        case 3:
+        case 5:
+        case 7:
+        case 8:
+        case 10:
+          day = 31;
+          break;
+        case 2:
+          day = !(year % 4) && ((year % 100) || !(year % 400)) ? 29 : 28;
+          break;
+        default:
+          day = 30;
+      }
+#endif
+
     return gst_date_time_new (0.0, year, month, day, hour, minute,
         (gdouble) second);
   } else if (utc_ptr[0] == 0xFF && utc_ptr[1] == 0xFF && utc_ptr[2] == 0xFF) {
