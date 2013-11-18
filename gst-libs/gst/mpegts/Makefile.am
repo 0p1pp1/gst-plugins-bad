@@ -1,6 +1,7 @@
 lib_LTLIBRARIES = libgstmpegts-@GST_API_VERSION@.la
 
 libgstmpegts_@GST_API_VERSION@_la_SOURCES = \
+	arib_b24_str.c \
 	gstmpegtssection.c \
 	gstmpegtsdescriptor.c \
 	gst-dvb-descriptor.c \
