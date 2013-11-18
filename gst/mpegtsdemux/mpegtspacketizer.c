@@ -472,6 +472,9 @@ mpegts_packetizer_parse_packet (MpegTSPacketizer2 * packetizer,
   if (G_UNLIKELY (tmp & 0xc0))
     return PACKET_BAD;
 
+  if (packet->pid == 0x1FFF)
+    tmp = 0;
+
   packet->data = data;
 
   packet->afc_flags = 0;
