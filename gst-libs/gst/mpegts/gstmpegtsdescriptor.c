@@ -540,6 +540,8 @@ convert_to_utf8 (const gchar * text, gint length, guint start,
   return new_text;
 }
 
+extern gchar *aribstr_to_utf8 (const gchar * text, guint length);
+
 gchar *
 get_encoding_and_convert (const gchar * text, guint length)
 {
@@ -554,6 +556,11 @@ get_encoding_and_convert (const gchar * text, guint length)
 
   if (text == NULL || length == 0)
     return g_strdup ("");
+
+#define ISDB 1
+#if ISDB
+  return aribstr_to_utf8 (text, length);
+#endif
 
   encoding = get_encoding (text, &start_text, &is_multibyte);
 
