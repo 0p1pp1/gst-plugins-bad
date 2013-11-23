@@ -99,6 +99,20 @@ typedef enum {
 } GstMpegTsSectionDVBTableID;
 
 /**
+ * GstMpegTsSectionISBTableID:
+ *
+ * Values for a #GstMpegTsSection table_id.
+ *
+ * These are the registered ISDB table_id variants.
+ *
+ * see also: #GstMpegTsSectionDVBTableID
+ */
+typedef enum {
+  /* ARIB STD-B25 */
+  GST_MTS_TABLE_ID_CA_MESSAGE_ECM_ISDB = 0x82,
+} GstMpegTsSectionISDBTableID;
+
+/**
  * GstMpegTsRunningStatus:
  *
  * Running status of a service.

@@ -41,6 +41,10 @@
 #include "mpegtsbase.h"
 #include "gstmpegdesc.h"
 
+#ifdef CONFIG_DEMULTI2
+#include <demulti2.h>
+#endif
+
 /* latency in mseconds */
 #define TS_LATENCY 700
 
@@ -66,6 +70,7 @@ enum
 {
   PROP_0,
   PROP_PARSE_PRIVATE_SECTIONS,
+  PROP_BCAS_DESCRAMBLE,
   /* FILL ME */
 };
 
@@ -128,6 +133,10 @@ mpegts_base_class_init (MpegTSBaseClass * klass)
       g_param_spec_boolean ("parse-private-sections", "Parse private sections",
           "Parse private sections", FALSE,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+  g_object_class_install_property (gobject_class, PROP_BCAS_DESCRAMBLE,
+      g_param_spec_boolean ("bcas", "Software BCAS Descrambling",
+          "Descramble Japanese DTV input using BCAS card.",
+          TRUE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
 }
 
@@ -140,6 +149,32 @@ mpegts_base_set_property (GObject * object, guint prop_id,
   switch (prop_id) {
     case PROP_PARSE_PRIVATE_SECTIONS:
       base->parse_private_sections = g_value_get_boolean (value);
+      break;
+    case PROP_BCAS_DESCRAMBLE:
+    {
+      gboolean onoff = FALSE;
+#if CONFIG_DEMULTI2
+      GstElement *elem;
+      GstStateChangeReturn ret;
+      GstState state, pending;
+
+      onoff = g_value_get_boolean (value);
+      elem = GST_ELEMENT (object);
+      ret = gst_element_get_state (elem, &state, &pending, 0);
+      if (ret == GST_STATE_CHANGE_ASYNC)
+        state = pending;
+      if (ret != GST_STATE_CHANGE_FAILURE && state >= GST_STATE_PAUSED) {
+        if (onoff == TRUE && onoff != base->descramble)
+          base->dm2_handle = demulti2_open ();
+        else if (onoff == FALSE && onoff != base->descramble) {
+          if (base->dm2_handle)
+            demulti2_close (base->dm2_handle);
+          base->dm2_handle = NULL;
+        }
+      }
+#endif
+      base->descramble = onoff;
+    }
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -155,6 +190,9 @@ mpegts_base_get_property (GObject * object, guint prop_id,
   switch (prop_id) {
     case PROP_PARSE_PRIVATE_SECTIONS:
       g_value_set_boolean (value, base->parse_private_sections);
+      break;
+    case PROP_BCAS_DESCRAMBLE:
+      g_value_set_boolean (value, base->descramble);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -212,6 +250,8 @@ mpegts_base_reset (MpegTSBase * base)
 
   g_hash_table_foreach_remove (base->programs, (GHRFunc) remove_each_program,
       base);
+  g_hash_table_remove_all (base->ecms);
+  g_hash_table_remove_all (base->stream_map);
 
   if (klass->reset)
     klass->reset (base);
@@ -232,8 +272,13 @@ mpegts_base_init (MpegTSBase * base)
   base->packetizer = mpegts_packetizer_new ();
   base->programs = g_hash_table_new_full (g_direct_hash, g_direct_equal,
       NULL, (GDestroyNotify) mpegts_base_free_program);
+  base->ecms = g_hash_table_new_full (g_direct_hash, g_direct_equal,
+      NULL, (GDestroyNotify) g_free);
+  base->stream_map = g_hash_table_new_full (g_direct_hash, g_direct_equal,
+      NULL, NULL);
 
   base->parse_private_sections = FALSE;
+  base->descramble = FALSE;
   base->is_pes = g_new0 (guint8, 1024);
   base->known_psi = g_new0 (guint8, 1024);
   base->program_size = sizeof (MpegTSBaseProgram);
@@ -271,6 +316,8 @@ mpegts_base_finalize (GObject * object)
     base->pat = NULL;
   }
   g_hash_table_destroy (base->programs);
+  g_hash_table_destroy (base->ecms);
+  g_hash_table_destroy (base->stream_map);
 
   if (G_OBJECT_CLASS (parent_class)->finalize)
     G_OBJECT_CLASS (parent_class)->finalize (object);
@@ -342,6 +389,49 @@ mpegts_get_descriptor_from_program (MpegTSBaseProgram * program, guint8 tag)
   return NULL;
 }
 
+static MpegTSBaseECM *
+mpegts_base_add_ecm (MpegTSBase * base, guint cas_id, guint ecm_pid)
+{
+  MpegTSBaseECM *ecm;
+
+  if (ecm_pid >= 0x1FFF)
+    return NULL;
+
+  ecm = g_hash_table_lookup (base->ecms, GUINT_TO_POINTER (ecm_pid));
+  if (ecm != NULL) {
+    ecm->refcount++;
+    return ecm;
+  }
+
+  ecm = g_malloc0 (sizeof (MpegTSBaseECM));
+  if (ecm == NULL) {
+    GST_INFO_OBJECT (base, "failed to malloc ECM.\n");
+    return NULL;
+  }
+
+  ecm->pid = (guint16) ecm_pid;
+  ecm->cas_id = (guint16) cas_id;
+  ecm->refcount = 1;
+  g_hash_table_insert (base->ecms, GUINT_TO_POINTER (ecm_pid), ecm);
+  MPEGTS_BIT_SET (base->known_psi, ecm_pid);
+  GST_LOG_OBJECT (base, "added ecm:0x%04x\n", ecm_pid);
+  return ecm;
+}
+
+static void
+mpegts_base_remove_ecm (MpegTSBase * base, guint ecm_pid)
+{
+  MpegTSBaseECM *ecm;
+
+  ecm = g_hash_table_lookup (base->ecms, GUINT_TO_POINTER (ecm_pid));
+  if (ecm == NULL || --ecm->refcount > 0)
+    return;
+
+  g_hash_table_remove (base->ecms, GUINT_TO_POINTER (ecm_pid));
+  MPEGTS_BIT_UNSET (base->known_psi, ecm_pid);
+  GST_LOG_OBJECT (base, "removed ecm:0x%04x\n", ecm_pid);
+}
+
 static MpegTSBaseProgram *
 mpegts_base_new_program (MpegTSBase * base,
     gint program_number, guint16 pmt_pid)
@@ -355,6 +445,7 @@ mpegts_base_new_program (MpegTSBase * base,
   program->program_number = program_number;
   program->pmt_pid = pmt_pid;
   program->pcr_pid = G_MAXUINT16;
+  program->ecm_pid = 0x1FFF;
   program->streams = g_new0 (MpegTSBaseStream *, 0x2000);
   program->patcount = 0;
 
@@ -480,6 +571,18 @@ mpegts_base_program_add_stream (MpegTSBase * base,
   bstream->stream_type = stream_type;
   bstream->stream = stream;
   if (stream) {
+    const GstMpegTsDescriptor *ca_desc;
+    guint16 stream_cas_id;
+
+    ca_desc = gst_mpegts_find_descriptor (stream->descriptors, GST_MTS_DESC_CA);
+    if (ca_desc
+        && gst_mpegts_descriptor_parse_ca (ca_desc,
+            &stream_cas_id, (guint16 *) & bstream->ecm_pid))
+      mpegts_base_add_ecm (base, stream_cas_id, bstream->ecm_pid);
+    else {
+      bstream->ecm_pid = program->ecm_pid;
+      mpegts_base_add_ecm (base, program->ca_sys_id, bstream->ecm_pid);
+    }
     bstream->registration_id =
         get_registration_from_descriptors (stream->descriptors);
     GST_DEBUG ("PID 0x%04x, registration_id %" SAFE_FOURCC_FORMAT,
@@ -489,7 +592,7 @@ mpegts_base_program_add_stream (MpegTSBase * base,
 
   program->streams[pid] = bstream;
   program->stream_list = g_list_append (program->stream_list, bstream);
-
+  g_hash_table_insert (base->stream_map, GUINT_TO_POINTER (pid), bstream);
   if (klass->stream_added)
     klass->stream_added (base, bstream, program);
 
@@ -517,6 +620,7 @@ mpegts_base_program_remove_stream (MpegTSBase * base,
   if (klass->stream_removed)
     klass->stream_removed (base, stream);
 
+  mpegts_base_remove_ecm (base, stream->ecm_pid);
   program->stream_list = g_list_remove_all (program->stream_list, stream);
   g_free (stream);
   program->streams[pid] = NULL;
@@ -530,6 +634,8 @@ mpegts_base_is_same_program (MpegTSBase * base, MpegTSBaseProgram * oldprogram,
   guint i, nbstreams;
   MpegTSBaseStream *oldstream;
   gboolean sawpcrpid = FALSE;
+  const GstMpegTsDescriptor *ca_desc;
+  guint16 ecm_pid;
 
   if (oldprogram->pmt_pid != new_pmt_pid) {
     GST_DEBUG ("Different pmt_pid (new:0x%04x, old:0x%04x)", new_pmt_pid,
@@ -543,10 +649,20 @@ mpegts_base_is_same_program (MpegTSBase * base, MpegTSBaseProgram * oldprogram,
     return FALSE;
   }
 
+  ca_desc = gst_mpegts_find_descriptor (new_pmt->descriptors, GST_MTS_DESC_CA);
+  if (!ca_desc || !gst_mpegts_descriptor_parse_ca (ca_desc, NULL, &ecm_pid))
+    ecm_pid = 0x1FFF;
+  if (oldprogram->ecm_pid != ecm_pid) {
+    GST_DEBUG ("Different program ecm_pid (new:0x%04x, old:0x%04x)",
+        ecm_pid, oldprogram->ecm_pid);
+    return FALSE;
+  }
+
   /* Check the streams */
   nbstreams = new_pmt->streams->len;
   for (i = 0; i < nbstreams; ++i) {
     GstMpegTsPMTStream *stream = g_ptr_array_index (new_pmt->streams, i);
+    guint16 stream_ecm_pid;
 
     oldstream = oldprogram->streams[stream->pid];
     if (!oldstream) {
@@ -557,6 +673,16 @@ mpegts_base_is_same_program (MpegTSBase * base, MpegTSBaseProgram * oldprogram,
       GST_DEBUG
           ("New stream 0x%04x has a different stream type (new:%d, old:%d)",
           stream->pid, stream->stream_type, oldstream->stream_type);
+      return FALSE;
+    }
+    ca_desc = gst_mpegts_find_descriptor (stream->descriptors, GST_MTS_DESC_CA);
+    if (!ca_desc
+        || !gst_mpegts_descriptor_parse_ca (ca_desc, NULL, &stream_ecm_pid))
+      stream_ecm_pid = ecm_pid;
+    if (oldstream->ecm_pid != stream_ecm_pid) {
+      GST_DEBUG
+          ("New stream 0x%04x has a different ecm pid (new:%d, old:%d)",
+          stream->pid, stream_ecm_pid, oldstream->ecm_pid);
       return FALSE;
     }
     if (stream->pid == oldprogram->pcr_pid)
@@ -617,9 +743,11 @@ mpegts_base_deactivate_program (MpegTSBase * base, MpegTSBaseProgram * program)
             MPEGTS_BIT_UNSET (base->is_pes, stream->pid);
             break;
         }
+        g_hash_table_remove (base->stream_map, GUINT_TO_POINTER (stream->pid));
       }
     }
 
+    mpegts_base_remove_ecm (base, program->ecm_pid);
     /* remove pcr stream */
     /* FIXME : This might actually be shared with another stream ? */
     mpegts_base_program_remove_stream (base, program, program->pcr_pid);
@@ -641,6 +769,7 @@ mpegts_base_activate_program (MpegTSBase * base, MpegTSBaseProgram * program,
 {
   guint i;
   MpegTSBaseClass *klass;
+  const GstMpegTsDescriptor *ca_desc;
 
   if (G_UNLIKELY (program->active))
     return;
@@ -655,6 +784,16 @@ mpegts_base_activate_program (MpegTSBase * base, MpegTSBaseProgram * program,
   program->pmt = pmt;
   program->pmt_pid = pmt_pid;
   program->pcr_pid = pmt->pcr_pid;
+
+  ca_desc = gst_mpegts_find_descriptor (pmt->descriptors, GST_MTS_DESC_CA);
+  if (ca_desc
+      && gst_mpegts_descriptor_parse_ca (ca_desc,
+          &program->ca_sys_id, &program->ecm_pid))
+    mpegts_base_add_ecm (base, program->ca_sys_id, program->ecm_pid);
+  else {
+    program->ca_sys_id = 0;
+    program->ecm_pid = 0x1FFF;
+  }
 
   /* extract top-level registration_id if present */
   program->registration_id =
@@ -889,6 +1028,31 @@ same_program:
 }
 
 static void
+mpegts_base_apply_ecm (MpegTSBase * base, GstMpegTsSection * section)
+{
+#if CONFIG_DEMULTI2
+  guint16 body_len, pid;
+  guint8 *body;
+  int ret;
+
+  if (!base->descramble || !base->dm2_handle)
+    return;
+
+  pid = section->pid;
+  body_len = section->section_length - 12;
+  body = section->data + 8;
+  GST_DEBUG_OBJECT (base, "ECM pid:0x%04hx bodylen:%d", pid, body_len);
+
+  ret = demulti2_feed_ecm (base->dm2_handle, body, body_len, pid);
+  if (G_UNLIKELY (ret > 0)) {
+    GST_WARNING ("Failed to feed an ECM body. pid:0x%04hx, ret:%d.", pid, ret);
+    return;
+  }
+#endif /* CONFIG_DEMULTI2 */
+  return;
+}
+
+static void
 mpegts_base_handle_psi (MpegTSBase * base, GstMpegTsSection * section)
 {
   gboolean post_message = TRUE;
@@ -912,6 +1076,9 @@ mpegts_base_handle_psi (MpegTSBase * base, GstMpegTsSection * section)
     case GST_MPEGTS_SECTION_EIT:
       /* some tag xtraction + posting */
       post_message = mpegts_base_get_tags_from_eit (base, section);
+      break;
+    case GST_MPEGTS_SECTION_ECM:
+      mpegts_base_apply_ecm (base, section);
       break;
     default:
       break;
@@ -1071,6 +1238,47 @@ query_upstream_latency (MpegTSBase * base)
   base->queried_latency = TRUE;
 }
 
+static void
+mpegts_base_packet_scrambled (MpegTSBase * base,
+    MpegTSPacketizerPacket * packet)
+{
+#ifdef CONFIG_DEMULTI2
+  MpegTSBaseStream *stream;
+  guint16 len;
+  int ret;
+  static guint8 buf[MPEGTS_MAX_PACKETSIZE];
+
+  stream =
+      g_hash_table_lookup (base->stream_map, GUINT_TO_POINTER (packet->pid));
+  if (stream == NULL) {
+    GST_LOG ("PMT not ready yet for pid:0x%04hx.", packet->pid);
+    return;
+  }
+
+  if (stream->ecm_pid >= 0x1FFF) {
+    GST_LOG ("pid:0x%04hx should be non-scrambled.", packet->pid);
+    return;
+  }
+
+  memcpy (buf, packet->data_start, packet->data_end - packet->data_start);
+  packet->payload = buf + (packet->payload - packet->data_start);
+  packet->data = buf + (packet->data - packet->data_start);
+  packet->data_end = buf + (packet->data_end - packet->data_start);
+  packet->data_start = buf;
+  len = packet->data_end - packet->payload;
+
+  ret = demulti2_descramble (base->dm2_handle, packet->payload, len,
+      packet->scram_afc_cc, stream->ecm_pid, NULL);
+  if (ret > 0) {
+    GST_LOG ("Failed to descramble pid:0x%04hx. ret:%d.", packet->pid, ret);
+    return;
+  }
+  buf[3] &= 0x3F;
+  packet->scram_afc_cc = buf[3];
+#endif /* CONFIG_DEMULTI2 */
+  return;
+}
+
 static GstFlowReturn
 mpegts_base_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
 {
@@ -1106,6 +1314,14 @@ mpegts_base_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
       /* bad header, skip the packet */
       GST_DEBUG_OBJECT (base, "bad packet, skipping");
       goto next;
+    }
+
+    if (FLAGS_SCRAMBLED (packet.scram_afc_cc)) {
+      if (!base->descramble || !base->dm2_handle)
+        goto next;
+      mpegts_base_packet_scrambled (base, &packet);
+      if (FLAGS_SCRAMBLED (packet.scram_afc_cc))
+        goto next;
     }
 
     /* If it's a known PES, push it */
@@ -1513,6 +1729,11 @@ mpegts_base_change_state (GstElement * element, GstStateChange transition)
 
   switch (transition) {
     case GST_STATE_CHANGE_READY_TO_PAUSED:
+#if CONFIG_DEMULTI2
+      /* assert(base->dm2_handle == NULL); */
+      if (base->descramble)
+        base->dm2_handle = demulti2_open ();
+#endif
       mpegts_base_reset (base);
       break;
     default:
@@ -1526,6 +1747,11 @@ mpegts_base_change_state (GstElement * element, GstStateChange transition)
       mpegts_base_reset (base);
       if (base->mode != BASE_MODE_PUSHING)
         base->mode = BASE_MODE_SCANNING;
+#if CONFIG_DEMULTI2
+      if (base->dm2_handle)
+        demulti2_close (base->dm2_handle);
+      base->dm2_handle = NULL;
+#endif
       break;
     default:
       break;

@@ -701,6 +701,9 @@ _identify_section (guint16 pid, guint8 table_id)
       if (pid == 0x0014)
         return GST_MPEGTS_SECTION_TOT;
       break;
+    case GST_MTS_TABLE_ID_CA_MESSAGE_ECM_ISDB:
+      return GST_MPEGTS_SECTION_ECM;
+
       /* FIXME : FILL */
     default:
       /* Handle ranges */

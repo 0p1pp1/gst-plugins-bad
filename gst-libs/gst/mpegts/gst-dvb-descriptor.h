@@ -335,10 +335,6 @@ gboolean gst_mpegts_descriptor_parse_dvb_component (const GstMpegTsDescriptor *d
 gboolean gst_mpegts_descriptor_parse_dvb_stream_identifier (const GstMpegTsDescriptor *descriptor,
 							    guint8 *component_tag);
 
-/* GST_MTS_DESC_DVB_CA_IDENTIFIER (0x53) */
-gboolean gst_mpegts_descriptor_parse_dvb_ca_identifier (const GstMpegTsDescriptor *descriptor,
-						    guint16 *ca_system_id, guint16 *ca_pid);
-
 /* GST_MTS_DESC_DVB_TERRESTRIAL_DELIVERY_SYSTEM (0x5A) */
 /* FIXME : Implement */
 

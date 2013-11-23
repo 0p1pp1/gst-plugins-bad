@@ -672,10 +672,8 @@ get_ca_pid (GPtrArray * descriptors)
   guint16 pid, cas_id;
   const GstMpegTsDescriptor *desc;
 
-  desc =
-      gst_mpegts_find_descriptor (descriptors, GST_MTS_DESC_DVB_CA_IDENTIFIER);
-  if (desc
-      && gst_mpegts_descriptor_parse_dvb_ca_identifier (desc, &cas_id, &pid)
+  desc = gst_mpegts_find_descriptor (descriptors, GST_MTS_DESC_CA);
+  if (desc && gst_mpegts_descriptor_parse_ca (desc, &cas_id, &pid)
       && (cas_id == 0x0005 || cas_id == 0x000a))
     return pid;
 

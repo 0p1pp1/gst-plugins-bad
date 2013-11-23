@@ -260,6 +260,10 @@ GPtrArray *gst_mpegts_parse_descriptors (guint8 * buffer, gsize buf_len);
 const GstMpegTsDescriptor * gst_mpegts_find_descriptor (GPtrArray *descriptors,
 							guint8 tag);
 
+/* GST_MTS_DESC_CA (0x09) */
+gboolean gst_mpegts_descriptor_parse_ca (const GstMpegTsDescriptor *descriptor,
+						    guint16 *ca_system_id, guint16 *ca_pid);
+
 /* GST_MTS_DESC_ISO_639_LANGUAGE (0x0A) */
 /**
  * GstMpegTsISO639AudioType:

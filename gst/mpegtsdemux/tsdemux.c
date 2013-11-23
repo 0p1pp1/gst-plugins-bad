@@ -334,6 +334,8 @@ gst_ts_demux_init (GstTSDemux * demux)
   /* We are not interested in sections (all handled by mpegtsbase) */
   base->push_section = FALSE;
 
+  base->descramble = TRUE;
+
   demux->requested_program_number = -1;
   demux->program_number = -1;
   gst_ts_demux_reset (base);
@@ -1151,28 +1153,16 @@ gst_ts_demux_flush_streams (GstTSDemux * demux)
 static gboolean
 is_valid_program (MpegTSBaseProgram * program)
 {
-  guint i;
-  guint pid;
-  const GValue *streams;
-  const GValue *value;
-  GstStructure *stream;
-  GstPad *pad;
-  gchar *name;
+  GList *item;
 
-  g_return_val_if_fail (program != NULL && program->pmt_info != NULL, FALSE);
+  g_return_val_if_fail (program != NULL && program->stream_list != NULL, FALSE);
 
-  streams = gst_structure_get_value (program->pmt_info, "streams");
-  if (streams == NULL)
-    return FALSE;
+  item = program->stream_list;
+  for (; item; item = g_list_next (item)) {
+    GstPad *pad;
+    gchar *name;
 
-  for (i = 0; i < gst_value_list_get_size (streams); ++i) {
-    value = gst_value_list_get_value (streams, i);
-    stream = g_value_get_boxed (value);
-    if (!gst_structure_get (stream, "pid", G_TYPE_UINT, &pid, NULL) ||
-        program->streams[pid] == NULL)
-      continue;
-
-    pad = ((TSDemuxStream *) program->streams[pid])->pad;
+    pad = ((TSDemuxStream *) item->data)->pad;
     if (pad == NULL)
       continue;
 
