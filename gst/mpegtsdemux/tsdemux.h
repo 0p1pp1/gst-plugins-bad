@@ -77,6 +77,10 @@ struct _GstTSDemux
   /* Full stream duration */
   GstClockTime duration;
 
+  /* Pads for default streams */
+  GstPad *apad, *vpad, *spad;
+  gboolean apad_assigned, vpad_assigned, spad_assigned;
+
   /* Pending seek rate (default 1.0) */
   gdouble rate;
 
