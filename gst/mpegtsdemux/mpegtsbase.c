@@ -95,6 +95,8 @@ static gboolean mpegts_base_get_tags_from_eit (MpegTSBase * base,
     GstMpegTsSection * section);
 static gboolean remove_each_program (gpointer key, MpegTSBaseProgram * program,
     MpegTSBase * base);
+static void mpegts_base_deactivate_program (MpegTSBase * base,
+    MpegTSBaseProgram * program);
 
 static void
 _extra_init (void)
@@ -528,8 +530,12 @@ mpegts_base_free_program (MpegTSBaseProgram * program)
 void
 mpegts_base_remove_program (MpegTSBase * base, gint program_number)
 {
+  MpegTSBaseProgram *program;
   GST_DEBUG_OBJECT (base, "program_number : %d", program_number);
 
+  program = mpegts_base_get_program (base, program_number);
+  if (program && program->active)
+    mpegts_base_deactivate_program (base, program);
   g_hash_table_remove (base->programs, GINT_TO_POINTER (program_number));
 }
 
@@ -997,12 +1003,9 @@ mpegts_base_apply_pmt (MpegTSBase * base, GstMpegTsSection * section)
   if (old_program->active) {
     old_program = mpegts_base_steal_program (base, program_number);
     program = mpegts_base_new_program (base, program_number, section->pid);
+    program->patcount = old_program->patcount;
     g_hash_table_insert (base->programs,
         GINT_TO_POINTER (program_number), program);
-
-    /* Desactivate the old program */
-    mpegts_base_deactivate_program (base, old_program);
-    mpegts_base_free_program (old_program);
     initial_program = FALSE;
   } else
     program = old_program;
@@ -1011,6 +1014,12 @@ mpegts_base_apply_pmt (MpegTSBase * base, GstMpegTsSection * section)
   /* Ownership of pmt_info is given to the program */
   mpegts_base_activate_program (base, program, section->pid, section, pmt,
       initial_program);
+
+  if (!initial_program) {
+    /* Desactivate the old program */
+    mpegts_base_deactivate_program (base, old_program);
+    mpegts_base_free_program (old_program);
+  }
 
   return TRUE;
 

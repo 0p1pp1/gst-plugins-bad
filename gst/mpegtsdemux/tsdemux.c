@@ -374,6 +374,7 @@ gst_ts_demux_init (GstTSDemux * demux)
 
   base->descramble = TRUE;
 
+  demux->apad = demux->vpad = demux->spad = NULL;
   demux->requested_program_number = -1;
   demux->program_number = -1;
   gst_ts_demux_reset (base);
@@ -385,12 +386,24 @@ gst_ts_demux_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec)
 {
   GstTSDemux *demux = GST_TS_DEMUX (object);
+  MpegTSBase *base;
+  MpegTSBaseProgram *program;
+  gint old_prog_num;
 
   switch (prop_id) {
     case PROP_PROGRAM_NUMBER:
-      /* FIXME: do something if program is switched as opposed to set at
-       * beginning */
       demux->requested_program_number = g_value_get_int (value);
+      if (demux->program_number == -1 || demux->requested_program_number == -1
+          || demux->program_number != demux->requested_program_number)
+        break;
+      old_prog_num = demux->program_number;
+      demux->program_number = demux->requested_program_number;
+      base = GST_MPEGTS_BASE (demux);
+      program = mpegts_base_get_program (base, demux->requested_program_number);
+      if (program && program->active)
+        gst_ts_demux_program_started (base, program);
+      /* FIXME: no need to remove, just deactivate. but it is static func. */
+      mpegts_base_remove_program (base, old_prog_num);
       break;
     case PROP_EMIT_STATS:
       demux->emit_statistics = g_value_get_boolean (value);
@@ -1102,6 +1115,10 @@ done:
     GST_LOG ("stream:%p creating pad with name %s and caps %" GST_PTR_FORMAT,
         stream, name, caps);
     pad = gst_pad_new_from_template (template, name);
+    if (!pad) {
+      GST_DEBUG ("failed to create pad:%s. try later...", name);
+      goto beach;
+    }
     gst_pad_set_active (pad, TRUE);
     gst_pad_use_fixed_caps (pad);
     stream_id =
@@ -1134,6 +1151,7 @@ done:
     gst_pad_set_event_function (pad, gst_ts_demux_srcpad_event);
   }
 
+beach:
   if (name)
     g_free (name);
   if (template)
@@ -1194,7 +1212,7 @@ gst_ts_demux_stream_removed (MpegTSBase * base, MpegTSBaseStream * bstream)
 }
 
 static void
-activate_pad_for_stream (GstTSDemux * tsdemux, TSDemuxStream * stream)
+activate_pad_for_stream (TSDemuxStream * stream, GstTSDemux * tsdemux)
 {
   GList *tmp;
   gboolean alldone = TRUE;
@@ -1341,7 +1359,49 @@ gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
     demux->calculate_update_segment = !program->initial_program;
 
     /* FIXME : When do we emit no_more_pads ? */
+    if (program->initial_program)
+      g_list_foreach (program->stream_list,
+          (GFunc) activate_pad_for_stream, demux);
   }
+}
+
+static void
+rename_add_new_pads (MpegTSBase * base, MpegTSBaseProgram * program)
+{
+  GstTSDemux *demux = GST_TS_DEMUX (base);
+  MpegTSBaseProgram *new_prog;
+  GList *l;
+  guint16 pid;
+  TSDemuxStream *stream, *oldstream;
+  gchar *oldname, *newname;
+
+  new_prog = mpegts_base_get_program (base, program->program_number);
+  if (!new_prog || new_prog == program)
+    return;
+
+  l = new_prog->stream_list;
+  while (l) {
+    stream = l->data;
+
+    pid = ((MpegTSBaseStream *) stream)->pid;
+    oldstream = (TSDemuxStream *) program->streams[pid];
+    if (stream->pad && oldstream && oldstream->pad) {
+      /* the pid is shared with the old program */
+      oldname = gst_pad_get_name (oldstream->pad);
+      if (!g_str_has_suffix (oldname, "_")) {
+        /* pad name conflicted. rename it */
+        newname = g_strconcat (oldname, "_", NULL);
+        gst_object_set_name (GST_OBJECT_CAST (stream->pad), newname);
+        GST_DEBUG ("pad renamed to %s", newname);
+        g_free (newname);
+      }
+      g_free (oldname);
+    }
+    activate_pad_for_stream (stream, demux);
+
+    l = l->next;
+  }
+  return;
 }
 
 static void
@@ -1349,13 +1409,19 @@ gst_ts_demux_program_stopped (MpegTSBase * base, MpegTSBaseProgram * program)
 {
   GstTSDemux *demux = GST_TS_DEMUX (base);
 
+  GST_DEBUG ("stopped %u", program->program_number);
+  rename_add_new_pads (base, program);
+
   if (demux->program == program) {
     demux->program = NULL;
     demux->program_number = -1;
     demux->apad_assigned = FALSE;
     demux->vpad_assigned = FALSE;
     demux->spad_assigned = FALSE;
-    if (G_UNLIKELY (g_hash_table_size (base->programs) == 0)) {
+
+    /* send EOS on default pads if \@program is the last one. */
+    if (G_UNLIKELY (g_hash_table_size (base->programs) == 1 && program ==
+            mpegts_base_get_program (base, program->program_number))) {
       if (demux->apad)
         gst_pad_push_event (demux->apad, gst_event_new_eos ());
       if (demux->vpad)
@@ -1712,9 +1778,10 @@ gst_ts_demux_push_pending_data (GstTSDemux * demux, TSDemuxStream * stream)
     GST_LOG ("state:%d, returning", stream->state);
     goto beach;
   }
-
+#if 0
   if (G_UNLIKELY (!stream->active))
-    activate_pad_for_stream (demux, stream);
+    activate_pad_for_stream (stream, demux);
+#endif
 
   if (G_UNLIKELY (stream->pad == NULL)) {
     g_free (stream->data);
