@@ -111,6 +111,8 @@ G_DEFINE_TYPE (MpegTSParse2, mpegts_parse, GST_TYPE_MPEGTS_BASE);
 static void mpegts_parse_reset (MpegTSBase * base);
 static GstFlowReturn mpegts_parse_input_done (MpegTSBase * base,
     GstBuffer * buffer);
+static GstPadProbeReturn
+sink_event_probe (GstPad * pad, GstPadProbeInfo * info, gpointer data);
 
 static void
 mpegts_parse_class_init (MpegTSParse2Class * klass)
@@ -158,8 +160,24 @@ mpegts_parse_init (MpegTSParse2 * parse)
   parse->first = TRUE;
   gst_element_add_pad (GST_ELEMENT (parse), parse->srcpad);
 
+  gst_pad_add_probe (GST_MPEGTS_BASE (parse)->sinkpad,
+      GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, sink_event_probe, parse, NULL);
+
   parse->have_group_id = FALSE;
   parse->group_id = G_MAXUINT;
+}
+
+static GstPadProbeReturn
+sink_event_probe (GstPad * pad, GstPadProbeInfo * info, gpointer data)
+{
+  MpegTSParse2 *parse = (MpegTSParse2 *) data;
+  GstEvent *event = GST_PAD_PROBE_INFO_EVENT (info);
+
+  if (GST_EVENT_TYPE (event) == GST_EVENT_SEGMENT) {
+    gst_event_ref (event);
+    push_event (GST_MPEGTS_BASE (parse), event);
+  }
+  return GST_PAD_PROBE_OK;
 }
 
 static void
@@ -687,6 +705,10 @@ mpegts_parse_src_pad_query (GstPad * pad, GstObject * parent, GstQuery * query)
 
       break;
     }
+    case GST_QUERY_SCHEDULING:
+      gst_query_set_scheduling (query, 0, 0, 0, 0);
+      res = TRUE;
+      break;
     default:
       res = gst_pad_query_default (pad, parent, query);
   }
