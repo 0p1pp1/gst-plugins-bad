@@ -479,9 +479,9 @@ gst_dvbsrc_init (GstDvbSrc * object)
   GST_INFO_OBJECT (object, "gst_dvbsrc_init");
 
   /* We are a live source */
-  gst_base_src_set_live (GST_BASE_SRC (object), TRUE);
+  gst_base_src_set_live (GST_BASE_SRC (object), FALSE);
   /* And we wanted timestamped output */
-  gst_base_src_set_do_timestamp (GST_BASE_SRC (object), TRUE);
+  gst_base_src_set_do_timestamp (GST_BASE_SRC (object), FALSE);
   gst_base_src_set_format (GST_BASE_SRC (object), GST_FORMAT_TIME);
 
   object->fd_frontend = -1;
