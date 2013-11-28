@@ -1597,7 +1597,9 @@ gst_ts_demux_queue_data (GstTSDemux * demux, TSDemuxStream * stream,
       GST_LOG ("EMPTY=>HEADER");
       stream->state = PENDING_PACKET_HEADER;
     }
-  }
+  } else if (stream->state == PENDING_PACKET_DISCONT
+      && packet->payload_unit_start_indicator)
+    stream->state = PENDING_PACKET_HEADER;
 
   switch (stream->state) {
     case PENDING_PACKET_HEADER:
