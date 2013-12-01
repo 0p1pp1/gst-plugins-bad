@@ -318,4 +318,53 @@ gboolean
 gst_mpegts_descriptor_parse_logical_channel (const GstMpegTsDescriptor *descriptor,
 					     GstMpegTsLogicalChannelDescriptor *res);
 
+
+/* GST_MTS_ISDB_DESC_SERIES (0xD5) */
+typedef enum {
+  GST_ISDB_PROGRAM_PATTERN_IRREGULAR = 0,
+
+} GstMpegTsIsdbProgramPattern;
+
+typedef struct _GstMpegTsIsdbEventSeries GstMpegTsIsdbEventSeries;
+struct _GstMpegTsIsdbEventSeries {
+  guint16 series_id;
+  guint8  repeat_label;
+  GstMpegTsIsdbProgramPattern program_pattern;
+  GstDateTime *expire_date;
+  guint16 episode_number;
+  guint16 last_episode_number;
+  gchar *series_name;
+};
+
+gboolean gst_mpegts_descriptor_parse_series (const GstMpegTsDescriptor *descriptor,
+						    GstMpegTsIsdbEventSeries *res);
+
+
+/* GST_MTS_ISDB_DESC_EVENT_GROUP (0xD6) */
+typedef enum {
+  GST_ISDB_EVENT_GROUP_TYPE_SHARED = 1,
+  GST_ISDB_EVENT_GROUP_TYPE_RELAYED_TO_INTERNAL,
+  GST_ISDB_EVENT_GROUP_TYPE_MOVED_FROM_INTERNAL,
+  GST_ISDB_EVENT_GROUP_TYPE_RELAYED_TO,
+  GST_ISDB_EVENT_GROUP_TYPE_MOVED_FROM,
+} GstMpegTsEventGroupType;
+
+typedef struct _GstMpegTsIsdbEventRef GstMpegTsIsdbEventRef;
+typedef struct _GstMpegTsIsdbEventGroup GstMpegTsIsdbEventGroup;
+
+struct _GstMpegTsIsdbEventRef {
+  guint16 original_network_id;   /* defined only for group_type >= 4 */
+  guint16 trasnport_stream_id;   /* defined only for group_type >= 4 */
+  guint16 service_id;
+  guint16 event_id;
+};
+
+struct _GstMpegTsIsdbEventGroup {
+  GstMpegTsEventGroupType group_type;
+  guint8 event_count;
+  GstMpegTsIsdbEventRef events[16];
+};
+
+gboolean gst_mpegts_descriptor_parse_event_group (const GstMpegTsDescriptor *descriptor,
+						    GstMpegTsIsdbEventGroup *res);
 #endif				/* GST_MPEGTS_DESCRIPTOR_H */
