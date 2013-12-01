@@ -195,18 +195,6 @@ static void _##name##_free (type * source) \
  *
  */
 
-/**
- * SECTION:gst-isdb-descriptor
- * @title: ISDB variants of MPEG-TS descriptors
- * @short_description: Descriptors for the various ISDB specifications
- * @include: gst/mpegts/mpegts.h
- * @symbols:
- * - GstMpegtsISDBDescriptorType
- * - GST_TYPE_MPEGTS_ISDB_DESCRIPTOR_TYPE
- * -  gst_mpegts_isdb_descriptor_type_get_type
- */
-
-
 /*
  * TODO
  *
