@@ -281,7 +281,7 @@ aribstr_to_utf8 (const gchar * source, const guint len)
   struct code_state state;
   const static struct code_state state_def = {
     .gl = 0,
-    .gr = 1,
+    .gr = 2,
     .ss = 0,
     .g = {
           {.mb = 2,.code = CODE_JISX0213_1},

@@ -29,8 +29,8 @@ then
     ln -s ../../common/hooks/pre-commit.hook .git/hooks/pre-commit
 fi
 
-CONFIGURE_DEF_OPT='--enable-maintainer-mode --enable-gtk-doc --disable-rpath'
-CONFIGURE_FILE_OPT='--disable-examples --disable-external --disable-aacparse --disable-adpcmdec --disable-aiffparse --disable-amrparse --disable-autoconvert --disable-camerabin --disable-legacyresample --disable-bayer --disable-cdxaparse --disable-dccp --disable-debugutils --disable-dtmf --disable-dvdspu --disable-festival --disable-freeze --disable-h264parse --disable-hdvparse --disable-id3tag --disable-librfb --disable-liveadder --disable-mpegtsmux --disable-mpeg4videoparse --disable-mpegvideoparse --disable-mve --disable-mxf --disable-nsf --disable-nuvdemux --disable-pcapparse --disable-qtmux --disable-rawparse --disable-real --disable-rtpmanager --disable-rtpmux --disable-scaletempo --disable-sdp --disable-selector --disable-shapewipe --disable-siren --disable-speed --disable-subenc --disable-stereo --disable-tta --disable-valve --disable-videosignal --disable-vmnc --disable-xdgmime --enable-dvb'
+CONFIGURE_DEF_OPT='--enable-maintainer-mode --disable-rpath'
+CONFIGURE_FILE_OPT='--disable-examples --disable-external --disable-aacparse --disable-adpcmdec --disable-aiffparse --disable-amrparse --disable-asfmux --disable-autoconvert --disable-camerabin --disable-legacyresample --disable-bayer --disable-cdxaparse --disable-dccp --disable-debugutils --disable-dtmf --disable-dvdspu --disable-festival --disable-freeze --disable-frie0r --disable-h264parse --disable-hdvparse --disable-id3tag --disable-librfb --disable-liveadder --disable-mpegtsmux --disable-mpeg4videoparse --disable-mpegvideoparse --disable-mve --disable-mxf --disable-nsf --disable-nuvdemux --disable-pcapparse --disable-pnm --disable-qtmux --disable-rawparse --disable-real --disable-rtpmux --disable-scaletempo --disable-sdp --disable-selector --disable-shapewipe --disable-siren --disable-speed --disable-subenc --disable-stereo --disable-tta --disable-valve --disable-videomeasure --disable-videosignal --disable-vmnc --enable-dvb'
 
 autogen_options $@
 
