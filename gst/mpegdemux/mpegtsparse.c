@@ -1411,12 +1411,12 @@ mpegts_parse_chain (GstPad * pad, GstBuffer * buf)
         parsed = mpegts_parse_handle_psi (parse, &section);
         gst_buffer_unref (section.buffer);
       }
-      if (G_UNLLIKELY (!parsed))
+      if (G_UNLIKELY (!parsed))
         goto next;
 
       do {
         parsed = mpegts_packetizer_push_section (packetizer, &packet, &section);
-        if (G_UNLIKEY (!parsed))
+        if (G_UNLIKELY (!parsed))
           /* bad section data */
           goto next;
 

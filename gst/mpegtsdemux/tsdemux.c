@@ -571,14 +571,6 @@ gst_ts_demux_change_state (GstElement * element, GstStateChange transition)
         reset_pat.buffer = NULL;
       }
 
-      if (base->pat && reset_pat.buffer) {
-        base->mode = BASE_MODE_SCANNING;
-        mpegts_packetizer_clear (base->packetizer);
-        mpegts_base_handle_psi (base, &reset_pat);
-        gst_buffer_unref (reset_pat.buffer);
-        reset_pat.buffer = NULL;
-      }
-
       if (demux->default_pads) {
         GstElement *element = (GstElement *) demux;
 

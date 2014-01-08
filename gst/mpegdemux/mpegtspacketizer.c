@@ -2256,12 +2256,10 @@ mpegts_packetizer_push_section0 (MpegTSPacketizer * packetizer,
   sub_buf = gst_buffer_create_sub (packet->buffer,
       data - GST_BUFFER_DATA (packet->buffer), end - data);
 
-  stream = (MpegTSPacketizerStream *) g_hash_table_lookup (packetizer->streams,
-      GINT_TO_POINTER ((gint) packet->pid));
+  stream = packetizer->streams[packet->pid];
   if (stream == NULL) {
     stream = mpegts_packetizer_stream_new ();
-    g_hash_table_insert (packetizer->streams,
-        GINT_TO_POINTER ((gint) packet->pid), stream);
+    packetizer->streams[packet->pid] = stream;
   }
 
   if (stream->continuity_counter != CONTINUITY_UNSET &&
