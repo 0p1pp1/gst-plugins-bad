@@ -907,12 +907,38 @@ dvb_base_bin_rebuild_filter (DvbBaseBin * dvbbasebin)
   dvbbasebin->filter = NULL;
 }
 
+static guint16
+get_ca_pid (GPtrArray * descriptors)
+{
+  const GstMpegtsDescriptor *desc;
+  guint16 ca_sys, ca_pid;
+
+  desc = gst_mpegts_find_descriptor (descriptors, GST_MTS_DESC_CA);
+  if (!desc ||
+      !gst_mpegts_descriptor_parse_ca ((GstMpegtsDescriptor *) desc,
+          &ca_sys, &ca_pid, NULL, NULL))
+    return 0x1fff;
+
+  return (ca_sys == 0x0005 || ca_sys == 0x000a) ? ca_pid : 0x1fff;
+}
+
 static void
 dvb_base_bin_remove_pmt_streams (DvbBaseBin * dvbbasebin,
     const GstMpegtsPMT * pmt)
 {
   gint i;
   DvbBaseBinStream *stream;
+  guint pid;
+
+  pid = get_ca_pid (pmt->descriptors);
+  if (pid != 0x1fff) {
+    stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
+    if (stream == NULL)
+      GST_WARNING_OBJECT (dvbbasebin, "removing unknown ECM %d ??", pid);
+    else
+      dvb_base_bin_unref_stream (stream);
+  }
+
 
   for (i = 0; i < pmt->streams->len; i++) {
     GstMpegtsPMTStream *pmtstream = g_ptr_array_index (pmt->streams, i);
@@ -925,6 +951,15 @@ dvb_base_bin_remove_pmt_streams (DvbBaseBin * dvbbasebin,
     }
 
     dvb_base_bin_unref_stream (stream);
+
+    pid = get_ca_pid (pmtstream->descriptors);
+    if (pid != 0x1fff) {
+      stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
+      if (stream == NULL)
+        GST_WARNING_OBJECT (dvbbasebin, "removing unknown ECM %d ??", pid);
+      else
+        dvb_base_bin_unref_stream (stream);
+    }
   }
 }
 
@@ -933,6 +968,15 @@ dvb_base_bin_add_pmt_streams (DvbBaseBin * dvbbasebin, const GstMpegtsPMT * pmt)
 {
   DvbBaseBinStream *stream;
   gint i;
+  guint pid;
+
+  pid = get_ca_pid (pmt->descriptors);
+  if (pid != 0x1fff) {
+    stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
+    if (stream == NULL)
+      stream = dvb_base_bin_add_stream (dvbbasebin, (guint16) pid);
+    dvb_base_bin_ref_stream (stream);
+  }
 
   for (i = 0; i < pmt->streams->len; i++) {
     GstMpegtsPMTStream *pmtstream = g_ptr_array_index (pmt->streams, i);
@@ -944,6 +988,14 @@ dvb_base_bin_add_pmt_streams (DvbBaseBin * dvbbasebin, const GstMpegtsPMT * pmt)
     if (stream == NULL)
       stream = dvb_base_bin_add_stream (dvbbasebin, pmtstream->pid);
     dvb_base_bin_ref_stream (stream);
+
+    pid = get_ca_pid (pmtstream->descriptors);
+    if (pid != 0x1fff) {
+      stream = dvb_base_bin_get_stream (dvbbasebin, (guint16) pid);
+      if (stream == NULL)
+        stream = dvb_base_bin_add_stream (dvbbasebin, (guint16) pid);
+      dvb_base_bin_ref_stream (stream);
+    }
   }
 }
 
