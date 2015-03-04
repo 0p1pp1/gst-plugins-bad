@@ -25,6 +25,7 @@
 
 #include <gst/gst.h>
 #include <gst/base/gstpushsrc.h>
+#include <linux/dvb/frontend.h>
 
 G_BEGIN_DECLS
 
@@ -130,6 +131,9 @@ struct _GstDvbSrc
 
   /* Only used for DTMB if available */
   int interleaving;
+
+  guint32 s2props_len;
+  struct dtv_property s2props[DTV_IOCTL_MAX_MSGS];
 };
 
 struct _GstDvbSrcClass

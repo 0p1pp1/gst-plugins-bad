@@ -195,7 +195,9 @@ enum
   ARG_DVBSRC_LNB_SLOF,
   ARG_DVBSRC_LNB_LOF1,
   ARG_DVBSRC_LNB_LOF2,
-  ARG_DVBSRC_INTERLEAVING
+  ARG_DVBSRC_INTERLEAVING,
+
+  ARG_DVBSRC_S2API_TUNE_PROPS
 };
 
 #define DEFAULT_ADAPTER 0
@@ -959,6 +961,14 @@ gst_dvbsrc_class_init (GstDvbSrcClass * klass)
           GST_TYPE_INTERLEAVING, DEFAULT_INTERLEAVING,
           GST_PARAM_MUTABLE_PLAYING | G_PARAM_READWRITE));
 
+  /* for the alternative S2API interface/props */
+  g_object_class_install_property (gobject_class,
+      ARG_DVBSRC_S2API_TUNE_PROPS,
+      g_param_spec_string ("s2api-tune-props",
+          "s2api-tuning-properties",
+          "list of 'prop_name=value' items separated by '|'",
+          NULL, G_PARAM_WRITABLE));
+
   /**
    * GstDvbSrc::tuning-start:
    * @gstdvbsrc: the element on which the signal is emitted
@@ -1086,6 +1096,165 @@ gst_dvbsrc_init (GstDvbSrc * object)
   g_mutex_init (&object->tune_mutex);
   object->timeout = DEFAULT_TIMEOUT;
   object->tuning_timeout = DEFAULT_TUNING_TIMEOUT;
+  object->s2props_len = 0;
+}
+
+#define S2API_SYMDEF(x) {((gchar *)#x), x}
+
+static const struct
+{
+  gchar *name;
+  guint32 id;
+} s2api_symbols[] = {
+  S2API_SYMDEF (DTV_UNDEFINED), S2API_SYMDEF (DTV_TUNE),
+      S2API_SYMDEF (DTV_CLEAR), S2API_SYMDEF (DTV_FREQUENCY),
+      S2API_SYMDEF (DTV_MODULATION), S2API_SYMDEF (DTV_BANDWIDTH_HZ),
+      S2API_SYMDEF (DTV_INVERSION), S2API_SYMDEF (DTV_DISEQC_MASTER),
+      S2API_SYMDEF (DTV_SYMBOL_RATE), S2API_SYMDEF (DTV_INNER_FEC),
+      S2API_SYMDEF (DTV_VOLTAGE), S2API_SYMDEF (DTV_TONE),
+      S2API_SYMDEF (DTV_PILOT), S2API_SYMDEF (DTV_ROLLOFF),
+      S2API_SYMDEF (DTV_DISEQC_SLAVE_REPLY),
+      S2API_SYMDEF (DTV_FE_CAPABILITY_COUNT), S2API_SYMDEF (DTV_FE_CAPABILITY),
+      S2API_SYMDEF (DTV_DELIVERY_SYSTEM),
+/*
+      S2API_SYMDEF (DTV_ISDBT_PARTIAL_RECEPTION),
+      S2API_SYMDEF (DTV_ISDBT_SOUNR_BROADCASTING),
+      S2API_SYMDEF (DTV_ISDBT_SB_SUBCHANNEL_ID),
+      S2API_SYMDEF (DTV_ISDBT_SB_SEGMENT_IDX),
+      S2API_SYMDEF (DTV_ISDBT_SB_SEGMENT_COUNT),
+      S2API_SYMDEF (DTV_ISDBT_LAYERA_FEC),
+      S2API_SYMDEF (DTV_ISDBT_LAYERA_MODULATION),
+      S2API_SYMDEF (DTV_ISDBT_LAYERA_SEGMENT_COUNT),
+      S2API_SYMDEF (DTV_ISDBT_LAYERA_TIME_INTERLEAVING),
+      S2API_SYMDEF (DTV_ISDBT_LAYERB_FEC),
+      S2API_SYMDEF (DTV_ISDBT_LAYERB_MODULATION),
+      S2API_SYMDEF (DTV_ISDBT_LAYERB_SEGMENT_COUNT),
+      S2API_SYMDEF (DTV_ISDBT_LAYERB_TIME_INTERLEAVING),
+      S2API_SYMDEF (DTV_ISDBT_LAYERC_FEC),
+      S2API_SYMDEF (DTV_ISDBT_LAYERC_MODULATION),
+      S2API_SYMDEF (DTV_ISDBT_LAYERC_SEGMENT_COUNT),
+      S2API_SYMDEF (DTV_ISDBT_LAYERC_TIME_INTERLEAVING),
+ */
+      S2API_SYMDEF (DTV_API_VERSION),
+      S2API_SYMDEF (DTV_CODE_RATE_HP), S2API_SYMDEF (DTV_CODE_RATE_LP),
+      S2API_SYMDEF (DTV_GUARD_INTERVAL), S2API_SYMDEF (DTV_TRANSMISSION_MODE),
+      S2API_SYMDEF (DTV_HIERARCHY),
+/*
+      S2API_SYMDEF (DTV_ISDBT_LAYER_ENABLED),
+ */
+      S2API_SYMDEF (DTV_STREAM_ID),
+      S2API_SYMDEF (PILOT_ON), S2API_SYMDEF (PILOT_OFF),
+      S2API_SYMDEF (PILOT_AUTO),
+      S2API_SYMDEF (ROLLOFF_35), S2API_SYMDEF (ROLLOFF_20),
+      S2API_SYMDEF (ROLLOFF_25), S2API_SYMDEF (ROLLOFF_AUTO),
+      S2API_SYMDEF (SYS_UNDEFINED), S2API_SYMDEF (SYS_DVBC_ANNEX_A),
+      S2API_SYMDEF (SYS_DVBC_ANNEX_B), S2API_SYMDEF (SYS_DVBT),
+      S2API_SYMDEF (SYS_DSS), S2API_SYMDEF (SYS_DVBS),
+      S2API_SYMDEF (SYS_DVBS2), S2API_SYMDEF (SYS_DVBH),
+      S2API_SYMDEF (SYS_ISDBT), S2API_SYMDEF (SYS_ISDBS),
+      S2API_SYMDEF (SYS_ISDBC), S2API_SYMDEF (SYS_ATSC),
+      S2API_SYMDEF (SYS_ATSCMH),
+#if HAVE_V5_MINOR(7)
+      S2API_SYMDEF (SYS_DTMB),
+#endif
+      S2API_SYMDEF (SYS_CMMB), S2API_SYMDEF (SYS_DAB),
+      S2API_SYMDEF (SYS_DVBT2), S2API_SYMDEF (SYS_TURBO),
+#if HAVE_V5_MINOR(6)
+      S2API_SYMDEF (SYS_DVBC_ANNEX_C),
+#endif
+  {
+  NULL, 0}
+};
+
+static GHashTable *s2api_tbl = NULL;
+
+static guint32
+s2api_symbol_id (const gchar * p)
+{
+  int i;
+
+  g_return_val_if_fail (p != NULL, 0);
+  g_return_val_if_fail (*p != '\0', 0);
+
+  if (s2api_tbl == NULL) {
+    s2api_tbl = g_hash_table_new (g_str_hash, g_str_equal);
+    for (i = 0; s2api_symbols[i].name != NULL; i++)
+      g_hash_table_insert (s2api_tbl, s2api_symbols[i].name,
+          GUINT_TO_POINTER (s2api_symbols[i].id));
+  }
+  return GPOINTER_TO_UINT (g_hash_table_lookup (s2api_tbl, p));
+}
+
+static void
+parse_s2api_props (GstDvbSrc * dvbsrc, const gchar * value)
+{
+  gchar **props, **p;
+  gchar *val, *v;
+  guint32 id;
+  guint64 d, d2;
+  int i;
+
+  g_return_if_fail (value != NULL);
+
+  /* FIXME: support escaping of '|' ? */
+  props = g_strsplit (value, "|", DTV_IOCTL_MAX_MSGS - 1);
+  dvbsrc->s2props_len = 0;
+  for (p = props; *p != NULL; p++) {
+    val = g_strstr_len (*p, -1, "=");
+    if (val == NULL || val == *p)
+      continue;
+    *val = '\0';
+    id = s2api_symbol_id (*p);
+    *val++ = '=';
+    if (id == 0)
+      continue;
+    dvbsrc->s2props[dvbsrc->s2props_len].cmd = id;
+
+    if (*val == '[') {
+      d = g_ascii_strtoull (++val, &v, 0);
+      if (val == v || *v != ']'
+          || d > sizeof (dvbsrc->s2props[0].u.buffer.data))
+        continue;
+      dvbsrc->s2props[dvbsrc->s2props_len].u.buffer.len = (guint32) d;
+
+      for (i = 0; i < d; i++) {
+        val = ++v;
+        d2 = g_ascii_strtoull (val, &v, 0);
+        if (val == v || (*v != ',' && *v != '\0') || d2 > G_MAXUINT8)
+          break;
+        dvbsrc->s2props[dvbsrc->s2props_len].u.buffer.data[i] = (guint8) d2;
+      }
+      if (i != d)
+        continue;
+    } else if (g_ascii_isalpha (*val)) {
+      dvbsrc->s2props[dvbsrc->s2props_len].u.data = s2api_symbol_id (val);
+      if (dvbsrc->s2props[dvbsrc->s2props_len].u.data == G_MAXUINT32)
+        continue;
+    } else {
+      d = g_ascii_strtoull (val, &v, 0);
+      if (val == v || *v != '\0' || d > G_MAXUINT32)
+        continue;
+      dvbsrc->s2props[dvbsrc->s2props_len].u.data = (guint32) d;
+    }
+    switch (id) {
+      case DTV_DELIVERY_SYSTEM:
+        dvbsrc->delsys = dvbsrc->s2props[dvbsrc->s2props_len].u.data;
+        break;
+      case DTV_FREQUENCY:
+        dvbsrc->freq = dvbsrc->s2props[dvbsrc->s2props_len].u.data;
+        break;
+      case DTV_INVERSION:
+        dvbsrc->inversion = dvbsrc->s2props[dvbsrc->s2props_len].u.data;
+        break;
+      case DTV_STREAM_ID:
+        dvbsrc->stream_id = dvbsrc->s2props[dvbsrc->s2props_len].u.data;
+        break;
+      default:
+        dvbsrc->s2props_len++;
+    }
+    GST_DEBUG_OBJECT (dvbsrc, "Set S2API Property(%d):%s.", id, *p);
+  }
+  g_strfreev (props);
 }
 
 static void
@@ -1336,6 +1505,10 @@ gst_dvbsrc_set_property (GObject * _object, guint prop_id,
       break;
     case ARG_DVBSRC_INTERLEAVING:
       object->interleaving = g_value_get_enum (value);
+      break;
+
+    case ARG_DVBSRC_S2API_TUNE_PROPS:
+      parse_s2api_props (object, g_value_get_string (value));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -2329,6 +2502,7 @@ gst_dvbsrc_set_fe_params (GstDvbSrc * object, struct dtv_properties *props)
   unsigned int sym_rate = object->sym_rate * 1000;
   int inversion = object->inversion;
   int n;
+  int i;
   gint err;
 
   /* first 3 entries are reserved */
@@ -2457,6 +2631,18 @@ gst_dvbsrc_set_fe_params (GstDvbSrc * object, struct dtv_properties *props)
 
       set_prop (props->props, &n, DTV_MODULATION, object->modulation);
       break;
+#define ISDB 1
+#if defined(ISDB)
+    case SYS_ISDBS:
+      set_prop (props->props, &n, DTV_STREAM_ID, object->stream_id);
+      /* fall through */
+    case SYS_ISDBT:
+      object->modulation = QAM_AUTO;
+      for (i = 0; i < object->s2props_len; i++)
+        set_prop (props->props, &n, object->s2props[i].cmd,
+            object->s2props[i].u.data);
+      break;
+#else
     case SYS_ISDBT:
 
       if (object->isdbt_partial_reception == 1 &&
@@ -2543,6 +2729,7 @@ gst_dvbsrc_set_fe_params (GstDvbSrc * object, struct dtv_properties *props)
       GST_INFO_OBJECT (object, "Tuning DTMB to %d Hz", freq);
       break;
 #endif
+#endif /* JAPANESE_DTV */
     default:
       GST_ERROR_OBJECT (object, "Unknown frontend type %u", object->delsys);
       return FALSE;
