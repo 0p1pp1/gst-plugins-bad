@@ -413,6 +413,8 @@ gst_ts_demux_init (GstTSDemux * demux)
   /* We are not interested in sections (all handled by mpegtsbase) */
   base->push_section = FALSE;
 
+  base->descramble = TRUE;
+
   demux->flowcombiner = gst_flow_combiner_new ();
   demux->requested_program_number = -1;
   demux->program_number = -1;
