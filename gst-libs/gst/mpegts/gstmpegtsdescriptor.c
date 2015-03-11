@@ -895,7 +895,7 @@ gst_mpegts_descriptor_from_registration (const gchar * format_identifier,
  */
 
 gboolean
-gst_mpegts_descriptor_parse_ca (GstMpegtsDescriptor * descriptor,
+gst_mpegts_descriptor_parse_ca (const GstMpegtsDescriptor * descriptor,
     guint16 * ca_system_id, guint16 * ca_pid,
     const guint8 ** private_data, gsize * private_data_size)
 {

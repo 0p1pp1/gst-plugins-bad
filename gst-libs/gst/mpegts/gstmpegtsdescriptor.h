@@ -275,7 +275,7 @@ GstMpegtsDescriptor *gst_mpegts_descriptor_from_registration (
     guint8 *additional_info, gsize additional_info_length);
 
 /* GST_MTS_DESC_CA (0x09) */
-gboolean  gst_mpegts_descriptor_parse_ca (GstMpegtsDescriptor *descriptor,
+gboolean  gst_mpegts_descriptor_parse_ca (const GstMpegtsDescriptor *descriptor,
 					  guint16 *ca_system_id,
 					  guint16 *ca_pid,
 					  const guint8 **private_data,
