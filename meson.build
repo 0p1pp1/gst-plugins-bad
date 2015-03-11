@@ -376,6 +376,11 @@ if host_system == 'android'
   gnustl_dep = dependency('gnustl', required : false)
 endif
 
+bcas_dep = cc.find_library('demulti2', required : get_option('bcas'), has_headers : ['demulti2.h'])
+if bcas_dep.found()
+  cdata.set('CONFIG_DEMULTI2', 1)
+endif
+
 # Disable compiler warnings for unused variables and args if gst debug system is disabled
 if gst_dep.type_name() == 'internal'
   gst_debug_disabled = not subproject('gstreamer').get_variable('gst_debug')

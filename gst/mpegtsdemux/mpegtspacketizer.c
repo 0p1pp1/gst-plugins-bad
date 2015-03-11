@@ -468,9 +468,6 @@ mpegts_packetizer_parse_packet (MpegTSPacketizer2 * packetizer,
   data += 2;
 
   packet->scram_afc_cc = tmp = *data++;
-  /* transport_scrambling_control 2 */
-  if (G_UNLIKELY (tmp & 0xc0))
-    return PACKET_BAD;
 
   if (packet->pid == 0x1FFF)
     tmp = 0;
