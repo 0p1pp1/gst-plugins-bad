@@ -123,6 +123,8 @@ static GstFlowReturn mpegts_parse_input_done (MpegTSBase * base,
     GstBuffer * buffer);
 static GstFlowReturn
 drain_pending_buffers (MpegTSParse2 * parse, gboolean drain_all);
+static GstFlowReturn
+mpegts_parse_push_src (MpegTSBase * base, GstBuffer * buffer);
 
 static void
 mpegts_parse_dispose (GObject * object)
@@ -191,8 +193,9 @@ mpegts_parse_init (MpegTSParse2 * parse)
 
   base->program_size = sizeof (MpegTSParseProgram);
   /* We will only need to handle data/section if we have request pads */
-  base->push_data = FALSE;
-  base->push_section = FALSE;
+  /* but descrambling feature requires to push data/sections */
+  base->push_data = TRUE;
+  base->push_section = TRUE;
 
   parse->user_pcr_pid = parse->pcr_pid = -1;
 
@@ -619,6 +622,20 @@ mpegts_parse_push (MpegTSBase * base, MpegTSPacketizerPacket * packet,
   GstFlowReturn ret;
   GList *srcpads;
 
+  if (base->descramble) {
+    GstBuffer *buf =
+        gst_buffer_new_and_alloc (packet->data_end - packet->data_start);
+    if (!buf)
+      GST_INFO ("failed to allocate memory for a buffer.");
+    else {
+      gst_buffer_fill (buf, 0, packet->data_start,
+          packet->data_end - packet->data_start);
+      ret = mpegts_parse_push_src (base, buf);
+      if (ret != GST_FLOW_OK)
+        GST_INFO ("failed to push a buffer out of the src pad.");
+    }
+  }
+
   GST_OBJECT_LOCK (parse);
   srcpads = parse->srcpads;
 
@@ -858,7 +875,7 @@ drain_pending_buffers (MpegTSParse2 * parse, gboolean drain_all)
 }
 
 static GstFlowReturn
-mpegts_parse_input_done (MpegTSBase * base, GstBuffer * buffer)
+mpegts_parse_push_src (MpegTSBase * base, GstBuffer * buffer)
 {
   MpegTSParse2 *parse = GST_MPEGTS_PARSE (base);
   GstFlowReturn ret = GST_FLOW_OK;
@@ -898,6 +915,18 @@ mpegts_parse_input_done (MpegTSBase * base, GstBuffer * buffer)
   }
 
   return ret;
+}
+
+static GstFlowReturn
+mpegts_parse_input_done (MpegTSBase * base, GstBuffer * buffer)
+{
+  /* descrambled packets should be output by mpegts_parse_push() instead. */
+  if (base->descramble) {
+    gst_buffer_unref (buffer);
+    return GST_FLOW_OK;
+  }
+
+  return mpegts_parse_push_src (base, buffer);
 }
 
 static MpegTSParsePad *

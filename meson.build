@@ -469,6 +469,15 @@ else
   cdata.set('DISABLE_ORC', 1)
 endif
 
+if get_option('use_bcas') != 'no'
+  need_bcas = get_option('use_bcas') == 'yes'
+  bcas_dep = dependency('demulti2', required : need_bcas)
+
+  if bcas_dep.found()
+    cdata.set('CONFIG_DEMULTI2', 1)
+  endif
+endif
+
 if gst_dep.type_name() == 'internal'
   gst_debug_disabled = subproject('gstreamer').get_variable('disable_gst_debug')
 else

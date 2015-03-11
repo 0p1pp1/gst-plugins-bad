@@ -361,6 +361,47 @@ AM_CONDITIONAL(HAVE_DSSIM, test "x$HAVE_DSSIM" = "xyes")
 dnl Orc
 ORC_CHECK([0.4.17])
 
+dnl libdemulti2 is optional for tsdemux/tsparse
+CONFIG_DEMULTI2=NO
+AC_ARG_ENABLE([bcas],
+  [AS_HELP_STRING([--disable-bcas],
+    [Disables BCAS descrambling by libdemulti2. @<:@default=auto@:>@])],
+  [],
+  [enable_bcas=auto])
+AC_ARG_VAR([DEMULTI2_CFLAGS], [C compiler flags for libdemulti2])
+AC_ARG_VAR([DEMULTI2_LIBS], [linker flags to use libdemulti2])
+
+AS_IF([test "x$enable_bcas" != xno],
+  [saved_cflags="$CFLAGS"
+   CFLAGS="$CPPFLAGS $DEMULTI2_CFLAGS"
+   AC_CHECK_HEADER([demulti2.h], [],
+     [AS_IF([test "x$enable_bcas" = xyes],
+        [AC_MSG_ERROR([Failed to find the required header demulti2.h. dnl
+Maybe you should add -I flag to the env var DEMULTI2_CFLAGS.])],
+        [enable_bcas=no])])
+   CFLAGS="$saved_cflags"
+  ])
+
+AS_IF([test "x$enable_bcas" != xno],
+  [saved_libs="$LIBS"
+   LIBS="$DEMULTI2_LIBS $LIBS"
+   AC_SEARCH_LIBS([demulti2_open], [demulti2], [], [], [-ldl])
+   LIBS="$saved_libs"
+   AS_IF([test x"$ac_cv_search_demulti2_open" != x'no'],
+     [AS_IF([test x"$ac_cv_search_demulti2_open" != x'none required'],
+        [DEMULTI2_LIBS="$DEMULTI2_LIBS $ac_cv_search_demulti2_open -dl"])
+      AC_DEFINE([CONFIG_DEMULTI2], [1], [Define if you use libdemulti2])
+      enable_bcas=yes
+     ],
+     [AS_IF([test "x$enable_bcas" = xyes],
+        [AC_MSG_ERROR([Failed to find the required library libdemulti2. dnl
+Maybe you should add -L flag to the env var DEMULTI2_LIBS.])],
+        [enable_bcas=no])
+     ])
+  ])
+AC_MSG_CHECKING([bcas])
+AC_MSG_RESULT([$enable_bcas])
+
 dnl set license and copyright notice
 GST_LICENSE="LGPL"
 AC_DEFINE_UNQUOTED(GST_LICENSE, "$GST_LICENSE", [GStreamer license])
