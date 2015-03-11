@@ -1373,6 +1373,8 @@ mpegts_base_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
       section = mpegts_packetizer_push_section (packetizer, &packet, &others);
       if (section)
         mpegts_base_handle_psi (base, section);
+      else
+        section = MPEGTS_SECTION_INCOMPLETE;
       if (G_UNLIKELY (others)) {
         for (tmp = others; tmp; tmp = tmp->next)
           mpegts_base_handle_psi (base, (GstMpegtsSection *) tmp->data);
