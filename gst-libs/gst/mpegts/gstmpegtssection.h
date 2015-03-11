@@ -59,6 +59,7 @@ GType gst_mpegts_section_get_type (void);
  * @GST_MPEGTS_SECTION_ATSC_EIT: ATSC Event Information Table (A65)
  * @GST_MPEGTS_SECTION_ATSC_STT: ATSC System Time Table (A65)
  * @GST_MPEGTS_SECTION_SCTE_SIT: SCTE Splice Information Table (SCTE-35)
+ * @GST_MPEGTS_SECTION_ISDB_ECM: ISDB ECM Table (ARIB STD-B25)
  *
  * Types of #GstMpegtsSection that the library handles.
  */
@@ -81,7 +82,9 @@ typedef enum {
   GST_MPEGTS_SECTION_ATSC_EIT,
   GST_MPEGTS_SECTION_ATSC_STT,
   GST_MPEGTS_SECTION_ATSC_RRT,
-  GST_MPEGTS_SECTION_SCTE_SIT
+  GST_MPEGTS_SECTION_SCTE_SIT,
+
+  GST_MPEGTS_SECTION_ISDB_ECM           = 100,
 } GstMpegtsSectionType;
 
 /**
