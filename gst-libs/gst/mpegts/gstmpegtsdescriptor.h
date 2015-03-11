@@ -284,7 +284,7 @@ GstMpegtsDescriptor *gst_mpegts_descriptor_from_registration (
 /* GST_MTS_DESC_CA (0x09) */
 
 GST_MPEGTS_API
-gboolean  gst_mpegts_descriptor_parse_ca (GstMpegtsDescriptor *descriptor,
+gboolean  gst_mpegts_descriptor_parse_ca (const GstMpegtsDescriptor *descriptor,
 					  guint16 *ca_system_id,
 					  guint16 *ca_pid,
 					  const guint8 **private_data,
