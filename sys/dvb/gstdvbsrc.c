@@ -1163,6 +1163,7 @@ static const struct
       S2API_SYMDEF (SYS_DVBC_ANNEX_C),
 #endif
   {
+  (gchar *) "DTV_ISDBS_TS_ID", DTV_STREAM_ID}, {
   NULL, 0}
 };
 
