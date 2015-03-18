@@ -2451,6 +2451,7 @@ gst_dvbsrc_tune_fe (GstDvbSrc * object)
   /* signal locking loop */
   elapsed_time = 0;
   start = gst_util_get_timestamp ();
+  gst_poll_remove_fd (poll_set, &fe_fd);        /* fe_fd is always readable */
 
   while (!(status & FE_HAS_LOCK) && elapsed_time <= object->tuning_timeout) {
     if (gst_poll_wait (poll_set, timeout_step) == -1)
