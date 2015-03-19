@@ -1990,6 +1990,8 @@ gst_ts_demux_program_started (MpegTSBase * base, MpegTSBaseProgram * program)
     if (demux->program_number == -1 && !is_valid_program (program))
       return;
 
+    if (demux->program_number == -1)
+      GST_INFO_OBJECT (base, "program %d selected", program->program_number);
     GST_LOG ("program %d started", program->program_number);
     demux->program_number = program->program_number;
     demux->program = program;
@@ -2400,6 +2402,10 @@ gst_ts_demux_queue_data (GstTSDemux * demux, TSDemuxStream * stream,
       GST_LOG ("EMPTY=>HEADER");
       stream->state = PENDING_PACKET_HEADER;
     }
+  } else if (stream->state == PENDING_PACKET_DISCONT
+      && packet->payload_unit_start_indicator) {
+    GST_LOG ("DISCONT=>HEADER");
+    stream->state = PENDING_PACKET_HEADER;
   }
 
   switch (stream->state) {
