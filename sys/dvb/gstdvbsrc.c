@@ -2791,6 +2791,7 @@ gst_dvbsrc_unset_pes_filters (GstDvbSrc * object)
   for (i = 0; i < MAX_FILTERS; i++) {
     if (object->fd_filters[i] == -1)
       continue;
+    ioctl (object->fd_filters[i], DMX_STOP);
     close (object->fd_filters[i]);
     object->fd_filters[i] = -1;
   }
@@ -2815,9 +2816,11 @@ gst_dvbsrc_set_pes_filters (GstDvbSrc * object)
     fd = &object->fd_filters[i];
     pid = object->pids[i];
 
-    if (*fd >= 0)
+    if (*fd >= 0) {
+      ioctl (*fd, DMX_STOP);
       close (*fd);
-    if ((*fd = open (demux_dev, O_RDWR)) < 0) {
+    }
+    if ((*fd = open (demux_dev, O_RDWR | O_NONBLOCK)) < 0) {
       GST_ERROR_OBJECT (object, "Error opening demuxer: %s (%s)",
           g_strerror (errno), demux_dev);
       continue;
