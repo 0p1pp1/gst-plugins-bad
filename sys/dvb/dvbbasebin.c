@@ -851,6 +851,7 @@ dvb_base_bin_change_state (GstElement * element, GstStateChange transition)
 
   ret = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
 
+#if 0
   switch (transition) {
     case GST_STATE_CHANGE_READY_TO_PAUSED:
       gst_poll_set_flushing (dvbbasebin->poll, FALSE);
@@ -868,6 +869,7 @@ dvb_base_bin_change_state (GstElement * element, GstStateChange transition)
     default:
       break;
   }
+#endif
 
   return ret;
 }
