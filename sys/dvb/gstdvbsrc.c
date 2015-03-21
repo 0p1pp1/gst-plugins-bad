@@ -1139,9 +1139,7 @@ static const struct
       S2API_SYMDEF (DTV_CODE_RATE_HP), S2API_SYMDEF (DTV_CODE_RATE_LP),
       S2API_SYMDEF (DTV_GUARD_INTERVAL), S2API_SYMDEF (DTV_TRANSMISSION_MODE),
       S2API_SYMDEF (DTV_HIERARCHY),
-/*
       S2API_SYMDEF (DTV_ISDBT_LAYER_ENABLED),
- */
       S2API_SYMDEF (DTV_STREAM_ID),
       S2API_SYMDEF (PILOT_ON), S2API_SYMDEF (PILOT_OFF),
       S2API_SYMDEF (PILOT_AUTO),
@@ -2639,11 +2637,20 @@ gst_dvbsrc_set_fe_params (GstDvbSrc * object, struct dtv_properties *props)
       set_prop (props->props, &n, DTV_STREAM_ID, object->stream_id);
       /* fall through */
     case SYS_ISDBT:
+    {
+      gboolean laysel = FALSE;
+
       object->modulation = QAM_AUTO;
-      for (i = 0; i < object->s2props_len; i++)
+      for (i = 0; i < object->s2props_len; i++) {
         set_prop (props->props, &n, object->s2props[i].cmd,
             object->s2props[i].u.data);
+        if (object->s2props[i].cmd == DTV_ISDBT_LAYER_ENABLED)
+          laysel = TRUE;
+      }
+      if (object->delsys == SYS_ISDBT && !laysel)
+        set_prop (props->props, &n, DTV_ISDBT_LAYER_ENABLED, 7);
       break;
+    }
 #else
     case SYS_ISDBT:
 
