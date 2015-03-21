@@ -885,6 +885,9 @@ mpegts_base_apply_pat (MpegTSBase * base, GstMpegtsSection * section)
   for (i = 0; i < pat->len; ++i) {
     GstMpegtsPatProgram *patp = g_ptr_array_index (pat, i);
 
+    if (patp->program_number == 0)
+      continue;
+
     program = mpegts_base_get_program (base, patp->program_number);
     if (program) {
       /* IF the program already existed, just check if the PMT PID changed */
