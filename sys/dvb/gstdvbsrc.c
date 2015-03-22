@@ -2413,6 +2413,7 @@ gst_dvbsrc_tune_fe (GstDvbSrc * object)
 
   gst_poll_fd_ctl_read (poll_set, &fe_fd, TRUE);
 
+#if 0
   memset (dvb_prop, 0, sizeof (dvb_prop));
   dvb_prop[0].cmd = DTV_CLEAR;
 
@@ -2421,6 +2422,7 @@ gst_dvbsrc_tune_fe (GstDvbSrc * object)
     GST_WARNING_OBJECT (object, "Error resetting tuner: %s",
         g_strerror (errno));
   }
+#endif
 
   memset (dvb_prop, 0, sizeof (dvb_prop));
   if (!gst_dvbsrc_set_fe_params (object, &props)) {
