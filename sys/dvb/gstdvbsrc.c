@@ -2354,11 +2354,13 @@ gst_dvbsrc_tune_fe (GstDvbSrc * object)
   props.num = 1;
   props.props = dvb_prop;
 
+#if 0
   LOOP_WHILE_EINTR (err, ioctl (object->fd_frontend, FE_SET_PROPERTY, &props));
   if (err) {
     GST_WARNING_OBJECT (object, "Error resetting tuner: %s",
         g_strerror (errno));
   }
+#endif
 
   memset (dvb_prop, 0, sizeof (dvb_prop));
   if (!gst_dvbsrc_set_fe_params (object, &props)) {
