@@ -130,9 +130,9 @@ static GstStaticPadTemplate mpegtsmux_sink_factory =
         "mpegversion = (int) { 1, 2 };"
         "audio/mpeg, "
         "framed = (boolean) TRUE, "
-        "mpegversion = (int) 4, stream-format = (string) adts;"
+        "mpegversion = (int) { 2, 4 }, stream-format = (string) adts;"
         "audio/mpeg, "
-        "mpegversion = (int) 4, stream-format = (string) raw;"
+        "mpegversion = (int) { 2, 4 }, stream-format = (string) raw;"
         "audio/x-lpcm, "
         "width = (int) { 16, 20, 24 }, "
         "rate = (int) { 48000, 96000 }, "
@@ -619,8 +619,11 @@ mpegtsmux_create_stream (MpegTsMux * mux, MpegTsPadData * ts_data)
         st = TSMUX_ST_AUDIO_MPEG1;
         break;
       case 2:
-        st = TSMUX_ST_AUDIO_MPEG2;
-        break;
+        if (!gst_structure_has_field (s, "framed")
+            || !gst_structure_has_field (s, "stream-format")) {
+          st = TSMUX_ST_AUDIO_MPEG2;
+          break;
+        }
       case 4:
       {
         st = TSMUX_ST_AUDIO_AAC;
