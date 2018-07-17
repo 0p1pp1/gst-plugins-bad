@@ -111,6 +111,7 @@ GstDvbV5ChannelsConfToPropertyMap dvbv5_prop_map[] = {
   {"MODULATION", "modulation", gst_dvb_base_bin_conf_set_modulation},
   {"CODE_RATE_HP", "code-rate-hp", gst_dvb_base_bin_conf_set_code_rate},
   {"CODE_RATE_LP", "code-rate-lp", gst_dvb_base_bin_conf_set_code_rate},
+  {"STREAM_ID", "stream-id", gst_dvb_base_bin_conf_set_int},
   {"ISDBT_LAYER_ENABLED", "isdbt-layer-enabled",
       gst_dvb_base_bin_conf_set_uint},
   {"ISDBT_PARTIAL_RECEPTION", "isdbt-partial-reception",
