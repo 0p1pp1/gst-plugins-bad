@@ -1029,7 +1029,7 @@ dvb_base_bin_activate_program (DvbBaseBin * dvbbasebin,
 
     old_pcr_pid = program->pcr_pid;
     program->pcr_pid = program->pmt->pcr_pid;
-    if (old_pcr_pid != G_MAXUINT16 && old_pcr_pid != program->pcr_pid) {
+    if (old_pcr_pid != G_MAXUINT16) {
       dvb_base_bin_unref_stream (dvb_base_bin_get_stream (dvbbasebin,
               old_pcr_pid));
     }
@@ -1135,7 +1135,7 @@ dvb_base_bin_pat_info_cb (DvbBaseBin * dvbbasebin, GstMpegtsSection * section)
 
     if (program->selected) {
       /* PAT update */
-      if (old_pmt_pid != G_MAXUINT16 && old_pmt_pid != program->pmt_pid) {
+      if (old_pmt_pid != G_MAXUINT16) {
         dvb_base_bin_unref_stream (dvb_base_bin_get_stream (dvbbasebin,
                 old_pmt_pid));
       }
