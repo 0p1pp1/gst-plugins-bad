@@ -884,9 +884,36 @@ set_properties_for_channel (GstElement * dvbbasebin,
     const gchar * channel_name, GError ** error)
 {
   gboolean ret = FALSE;
-  gchar *filename;
+  gchar *filename = NULL;
+  gchar **tokens, **args;
 
-  filename = g_strdup (g_getenv ("GST_DVB_CHANNELS_CONF"));
+  tokens = g_strsplit (channel_name, "@", 2);
+  if (g_strv_length (tokens) == 2) {
+    g_object_set (dvbbasebin, "adapter", atoi (tokens[0]), NULL);
+    channel_name = (const gchar *) tokens[1];
+  }
+
+  args = g_strsplit (channel_name, "?", 2);
+  if (g_strv_length (args) == 2) {
+    gchar **p, **options;
+
+    channel_name = (const gchar *) args[0];
+    options = g_strsplit (args[1], "&", 0);
+    for (p = options; p && *p; p++) {
+      if (g_str_has_prefix (*p, "card="))
+        g_object_set (dvbbasebin, "adapter", atoi ((*p) + 5), NULL);
+      else if (g_str_has_prefix (*p, "adapter="))
+        g_object_set (dvbbasebin, "adapter", atoi ((*p) + 8), NULL);
+      else if (g_str_has_prefix (*p, "file="))
+        filename = g_strdup ((*p) + 5);
+      else if (g_str_has_prefix (*p, "frontend="))
+        g_object_set (dvbbasebin, "frontend", atoi ((*p) + 9), NULL);
+    }
+    g_strfreev (options);
+  }
+
+  if (filename == NULL)
+    filename = g_strdup (g_getenv ("GST_DVB_CHANNELS_CONF"));
   if (filename == NULL) {
     filename = g_build_filename (g_get_user_config_dir (),
         "gstreamer-" GST_API_VERSION, "dvb-channels.conf", NULL);
@@ -920,5 +947,7 @@ set_properties_for_channel (GstElement * dvbbasebin,
   }
 
   g_free (filename);
+  g_strfreev (args);
+  g_strfreev (tokens);
   return ret;
 }
