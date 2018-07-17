@@ -2629,6 +2629,9 @@ gst_dvbsrc_set_fe_params (GstDvbSrc * object, struct dtv_properties *props)
             "layer C modulation is DQPSK but layer B modulation is different");
       }
 
+      if (object->bandwidth == DEFAULT_BANDWIDTH_HZ)
+        object->bandwidth = 6000000;
+
       GST_INFO_OBJECT (object, "Tuning ISDB-T to %d", freq);
       set_prop (props->props, &n, DTV_BANDWIDTH_HZ, object->bandwidth);
       set_prop (props->props, &n, DTV_GUARD_INTERVAL, object->guard_interval);
@@ -2670,6 +2673,17 @@ gst_dvbsrc_set_fe_params (GstDvbSrc * object, struct dtv_properties *props)
           object->isdbt_layerc_segment_count);
       set_prop (props->props, &n, DTV_ISDBT_LAYERC_TIME_INTERLEAVING,
           object->isdbt_layerc_time_interleaving);
+      break;
+    case SYS_ISDBS:
+      inversion = INVERSION_AUTO;
+      if (object->stream_id == NO_STREAM_ID_FILTER) {
+        GST_WARNING_OBJECT (object, "No Stream ID specified. "
+            "ISDB-S requires it.");
+        return FALSE;
+      }
+      GST_INFO_OBJECT (object, "Tuning ISDB-S to %d kHz", freq);
+      set_prop (props->props, &n, DTV_VOLTAGE, SEC_VOLTAGE_18);
+      set_prop (props->props, &n, DTV_STREAM_ID, object->stream_id);
       break;
 #if HAVE_V5_MINOR(7)
     case SYS_DTMB:
