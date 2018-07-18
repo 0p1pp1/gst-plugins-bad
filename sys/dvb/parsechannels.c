@@ -44,7 +44,8 @@ typedef enum
 {
   CHANNEL_CONF_FORMAT_NONE,
   CHANNEL_CONF_FORMAT_DVBV5,
-  CHANNEL_CONF_FORMAT_ZAP
+  CHANNEL_CONF_FORMAT_ZAP,
+  CHANNEL_CONF_FORMAT_MPV
 } GstDvbChannelConfFormat;
 
 typedef gboolean (*GstDvbV5ChannelsConfPropSetFunction) (GstElement *
@@ -442,6 +443,91 @@ property_error:
     g_clear_error (&err);
     return FALSE;
   }
+}
+
+/* Parser for mpv-style config file.
+ * currently, very limited dtv-props are supported.
+ *
+ * Format := LINE*
+ * LINE := {COMMENT | DEF} "\n"
+ * COMMENT := "#" .*
+ * DEF := CH_NAME ":" PROPS ":" SERVICE_ID
+ * PROPS := {PROP "|"}* PROP
+ * PROP := PROP_NAME "=" PROP_VALUE
+ * PROP_NAME := "DTV_FREQUENCY" | "DTV_DELIVERY_SYSTEM" | "DTV_STREAM_ID" | ...
+ * PROP_VALUE := NUMBERS
+ */
+static gboolean
+parse_and_configure_from_mpv_conf_file (GstElement * dvbbasebin,
+    const gchar * filename, const gchar * channel_name, GError ** error)
+{
+  gboolean ret = FALSE;
+  gchar *contents;
+  gchar **lines;
+  gchar **line;
+
+  if (!g_file_get_contents (filename, &contents, NULL, NULL))
+    return ret;
+
+  lines = g_strsplit (contents, "\n", 0);
+
+  for (line = lines; *line; line++) {
+    gchar **tokens;
+    gchar **items = NULL, **item;
+
+    if (!g_str_has_prefix (*line, channel_name))
+      continue;
+
+    tokens = g_strsplit (*line, ":", 3);
+    if (g_strv_length (tokens) != 3)
+      goto bailout;
+
+    items = g_strsplit (tokens[1], "|", 0);
+    for (item = items; *item; item++) {
+      gchar *p = strchr (*item, '=');
+
+      if (!p)
+        continue;
+      *p = '\0';
+      g_strstrip (*item);
+      if (!strcmp (*item, "DTV_FREQUENCY"))
+        g_object_set (dvbbasebin, "frequency", strtol (p + 1, NULL, 10), NULL);
+      else if (!strcmp (*item, "DTV_STREAM_ID") ||
+          !strcmp (*item, "DTV_ISDBS_TS_ID"))
+        g_object_set (dvbbasebin, "stream-id", strtol (p + 1, NULL, 0), NULL);
+      else if (!strcmp (*item, "DTV_DELIVERY_SYSTEM")) {
+        static const gchar *delsys[] = {
+          "UNDEFINED", "DVBCA", "DVBCB", "DVBT", "DSS",
+          "DVBS", "DVBS2", "DVBH", "ISDBT", "ISDBS",
+          "ISDBC", "ATSC", "ATSCMH", "DTMB", "CMMB",
+          "DAB", "DVBT2", "TURBO", "DVBCC", NULL
+        };
+        int dsys;
+
+        g_strstrip (p + 1);
+        if (g_ascii_isdigit (*(p + 1)))
+          dsys = atoi (p + 1);
+        else
+          dsys = gst_dvb_base_bin_find_string_in_array (delsys, p + 1);
+
+        if (dsys <= 0 || dsys >= sizeof (delsys))
+          goto bailout;
+        g_object_set (dvbbasebin, "delsys", dsys, NULL);
+      }
+    }
+
+    g_object_set (dvbbasebin, "program-numbers", g_strstrip (tokens[2]), NULL);
+    ret = TRUE;
+
+  bailout:
+    g_strfreev (items);
+    g_strfreev (tokens);
+    break;
+  }
+
+  g_strfreev (lines);
+  g_free (contents);
+  return ret;
 }
 
 static GHashTable *
@@ -869,6 +955,10 @@ detect_file_format (const gchar * filename)
       ret = CHANNEL_CONF_FORMAT_DVBV5;
       break;
     } else if (g_strrstr (*line, ":")) {
+      if (strchr (*line, '|')) {
+        ret = CHANNEL_CONF_FORMAT_MPV;
+        break;
+      }
       ret = CHANNEL_CONF_FORMAT_ZAP;
       break;
     }
@@ -939,6 +1029,17 @@ set_properties_for_channel (GstElement * dvbbasebin,
             "channel '%s' in configuration file '%s'", channel_name, filename);
       } else {
         GST_INFO_OBJECT (dvbbasebin, "Parsed ZAP channel configuration file");
+        ret = TRUE;
+      }
+      break;
+    case CHANNEL_CONF_FORMAT_MPV:
+      if (!parse_and_configure_from_mpv_conf_file (dvbbasebin, filename,
+              channel_name, error)) {
+        GST_WARNING_OBJECT (dvbbasebin, "Problem finding information for "
+            "channel '%s' in configuration file '%s'", channel_name, filename);
+      } else {
+        GST_INFO_OBJECT (dvbbasebin, "Parsed MPV-style channel configuration "
+            "file");
         ret = TRUE;
       }
       break;
