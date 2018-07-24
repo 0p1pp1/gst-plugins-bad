@@ -2391,7 +2391,12 @@ gst_dvbsrc_tune_fe (GstDvbSrc * object)
     GST_LOG_OBJECT (object,
         "Tuning. Time elapsed %" GST_STIME_FORMAT " Limit %" GST_TIME_FORMAT,
         GST_STIME_ARGS (elapsed_time), GST_TIME_ARGS (object->tuning_timeout));
-  } while (!(status & FE_HAS_LOCK) && elapsed_time <= object->tuning_timeout);
+
+    if (!(status & FE_HAS_LOCK) && elapsed_time <= object->tuning_timeout)
+      g_usleep (100 * 1000);
+    else
+      break;
+  } while (1);
 
   if (!(status & FE_HAS_LOCK)) {
     GST_WARNING_OBJECT (object,
