@@ -644,8 +644,9 @@ mpegts_base_program_add_stream (MpegTSBase * base,
   bstream->stream_object = gst_stream_new (bstream->stream_id, NULL,
       GST_STREAM_TYPE_UNKNOWN, GST_STREAM_FLAG_NONE);
   if (stream) {
-    const GstMpegtsDescriptor *ca_desc;
+    const GstMpegtsDescriptor *ca_desc, *stid_desc;
     guint16 stream_cas_id;
+    guint8 ctag;
 
     ca_desc = gst_mpegts_find_descriptor (stream->descriptors, GST_MTS_DESC_CA);
     if (ca_desc
@@ -656,6 +657,14 @@ mpegts_base_program_add_stream (MpegTSBase * base,
       bstream->ecm_pid = program->ecm_pid;
       mpegts_base_add_ecm (base, program->ca_sys_id, program->ecm_pid);
     }
+
+    stid_desc = gst_mpegts_find_descriptor (stream->descriptors,
+        GST_MTS_DESC_DVB_STREAM_IDENTIFIER);
+    if (stid_desc &&
+        gst_mpegts_descriptor_parse_dvb_stream_identifier (stid_desc, &ctag))
+      if (ctag == 0 || ctag == 10 || ctag == 30)
+        gst_stream_set_stream_flags (bstream->stream_object,
+            GST_STREAM_FLAG_SELECT);
 
     bstream->registration_id =
         get_registration_from_descriptors (stream->descriptors);
