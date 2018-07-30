@@ -662,7 +662,7 @@ mpegts_base_program_add_stream (MpegTSBase * base,
         GST_MTS_DESC_DVB_STREAM_IDENTIFIER);
     if (stid_desc &&
         gst_mpegts_descriptor_parse_dvb_stream_identifier (stid_desc, &ctag))
-      if (ctag == 0 || ctag == 10 || ctag == 30)
+      if (ctag == 0 || ctag == 0x10 || ctag == 0x30)
         gst_stream_set_stream_flags (bstream->stream_object,
             GST_STREAM_FLAG_SELECT);
 
