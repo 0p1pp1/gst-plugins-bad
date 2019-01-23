@@ -682,7 +682,7 @@ mpegts_parse_push (MpegTSBase * base, MpegTSPacketizerPacket * packet,
 
     g_object_unref (pad);
 
-    if (G_UNLIKELY (!done)) {
+    if (G_LIKELY (!done)) {
       GST_OBJECT_LOCK (parse);
       if (G_UNLIKELY (pads_cookie != GST_ELEMENT_CAST (parse)->pads_cookie)) {
         /* resync */
