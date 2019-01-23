@@ -535,7 +535,7 @@ mpegts_parse_tspad_push_section (MpegTSParse2 * parse, MpegTSParsePad * tspad,
   GstFlowReturn ret = GST_FLOW_OK;
   gboolean to_push = TRUE;
 
-  if (tspad->program_number != -1) {
+  if (tspad->program_number != -1 && section) {
     if (tspad->program) {
       /* we push all sections to all pads except PMTs which we
        * only push to pads meant to receive that program number */
@@ -554,7 +554,7 @@ mpegts_parse_tspad_push_section (MpegTSParse2 * parse, MpegTSParsePad * tspad,
 
   GST_DEBUG_OBJECT (parse,
       "pushing section: %d program number: %d table_id: %d", to_push,
-      tspad->program_number, section->table_id);
+      tspad->program_number, section ? section->table_id : -1);
 
   if (to_push) {
     GstBuffer *buf =
@@ -658,7 +658,9 @@ mpegts_parse_push (MpegTSBase * base, MpegTSPacketizerPacket * packet,
     tspad = gst_pad_get_element_private (pad);
 
     if (G_LIKELY (!tspad->pushed)) {
-      if (section) {
+      if (section ||
+          (!MPEGTS_BIT_IS_SET (base->is_pes, packet->pid)
+           && MPEGTS_BIT_IS_SET (base->known_psi, packet->pid))) {
         tspad->flow_return =
             mpegts_parse_tspad_push_section (parse, tspad, section, packet);
       } else {
