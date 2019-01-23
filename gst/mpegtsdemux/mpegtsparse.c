@@ -89,6 +89,7 @@ enum
   PROP_PCR_PID,
   PROP_ALIGNMENT,
   PROP_SPLIT_ON_RAI,
+  PROP_SHRINK_PAT,
   /* FILL ME */
 };
 
@@ -176,6 +177,10 @@ mpegts_parse_class_init (MpegTSParse2Class * klass)
       g_param_spec_boolean ("split-on-rai", "Split on RAI",
           "If set, buffers sized smaller than the alignment will be sent "
           "so that RAI packets are at the start of a new buffer", FALSE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+  g_object_class_install_property (gobject_class, PROP_SHRINK_PAT,
+      g_param_spec_boolean ("shrink-pat", "Rewrite PAT for one program",
+          "At each program pad, rewrite PAT to contain just the program", TRUE,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   element_class = GST_ELEMENT_CLASS (klass);
@@ -266,6 +271,7 @@ mpegts_parse_reset (MpegTSBase * base)
   parse->first = TRUE;
   parse->have_group_id = FALSE;
   parse->group_id = G_MAXUINT;
+  parse->shrink_pat = TRUE;
 
   g_list_free_full (parse->pending_buffers, (GDestroyNotify) gst_buffer_unref);
   parse->pending_buffers = NULL;
@@ -308,6 +314,9 @@ mpegts_parse_set_property (GObject * object, guint prop_id,
     case PROP_SPLIT_ON_RAI:
       parse->split_on_rai = g_value_get_boolean (value);
       break;
+    case PROP_SHRINK_PAT:
+      parse->shrink_pat = g_value_get_boolean (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
   }
@@ -334,6 +343,9 @@ mpegts_parse_get_property (GObject * object, guint prop_id,
       break;
     case PROP_SPLIT_ON_RAI:
       g_value_set_boolean (value, parse->split_on_rai);
+      break;
+    case PROP_SHRINK_PAT:
+      g_value_set_boolean (value, parse->shrink_pat);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -623,6 +635,47 @@ mpegts_parse_release_pad (GstElement * element, GstPad * pad)
   gst_element_remove_pad (element, pad);
 }
 
+static gboolean
+shrink_pat (guchar * buf, gint program_number)
+{
+  guchar *p, *q, *end;
+  guint len;
+  guint32 crc;
+
+  if (!buf || program_number <= 0 || program_number > 0xffff)
+    return FALSE;
+
+  if (buf[0] != 0x47 || buf[1] & 0x80 || !(buf[1] & 0x40) || !(buf[3] & 0x10))
+    return FALSE;
+
+  p = buf + 4;
+  end = buf + 188;
+  if (buf[3] & 0x20)
+    p += buf[4] + 1;
+  if (p >= end || (p += *p + 1) >= end - 16 || *p != 0)
+    return FALSE;
+
+  len = (p[1] & 0x0f) << 8 | p[2];
+  end = p + 3 + len - 4;
+  for (q = p + 8; q < end; q += 4)
+    if ((q[0] << 8 | q[1]) == program_number)
+      break;
+  if (q >= end)
+    return FALSE;
+
+  p[1] &= 0xf0;
+  p[2] = 8 + 4 + 4 - 3;
+  memmove (p + 8, q, 4);
+  crc = _calc_crc32 (p, 12);
+  p[12] = (crc & 0xff000000) >> 24;
+  p[13] = (crc & 0x00ff0000) >> 16;
+  p[14] = (crc & 0x0000ff00) >> 8;
+  p[15] = crc & 0xff;
+  memset (p + 16, 0xff, buf + 188 - p - 16);
+
+  return TRUE;
+}
+
 static GstFlowReturn
 empty_adapter_into_pad (MpegTSParse2Adapter * ts_adapter, GstPad * pad)
 {
@@ -711,6 +764,18 @@ mpegts_parse_tspad_push_section (MpegTSParse2 * parse, MpegTSParsePad * tspad,
 
   if (to_push) {
     GstBuffer *buf = mpegts_packet_to_buffer (packet);
+
+    if (packet->pid == 0x00 && parse->shrink_pat) {
+      GstMapInfo mapinfo;
+
+      buf = gst_buffer_make_writable (buf);
+      if (gst_buffer_map (buf, &mapinfo, GST_MAP_READWRITE)) {
+        if (!shrink_pat (mapinfo.data, tspad->program_number))
+          GST_INFO_OBJECT (parse, "failed to rewrite PAT");
+        gst_buffer_unmap (buf, &mapinfo);
+      }
+    }
+
     ret =
         enqueue_and_maybe_push_buffer (parse, tspad->pad, &tspad->ts_adapter,
         buf);

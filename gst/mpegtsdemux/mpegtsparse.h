@@ -76,6 +76,7 @@ struct _MpegTSParse2 {
   /* state */
   gboolean first;
   gboolean set_timestamps;
+  gboolean shrink_pat;
 
   /* Pending buffer state */
   GList *pending_buffers;

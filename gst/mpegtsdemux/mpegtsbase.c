@@ -856,7 +856,8 @@ mpegts_base_update_program (MpegTSBase * base, MpegTSBaseProgram * program,
     MpegTSBaseStream *stream = (MpegTSBaseStream *) tmp->data;
     mpegts_base_program_remove_stream (base, program, stream->pid);
   }
-  if (old_pcr_pid != pmt->pcr_pid && !program->streams[old_pcr_pid])
+  if (old_pcr_pid != 0xFFFF &&
+      old_pcr_pid != pmt->pcr_pid && !program->streams[old_pcr_pid])
     MPEGTS_BIT_UNSET (base->is_pes, old_pcr_pid);
   return TRUE;
 }
