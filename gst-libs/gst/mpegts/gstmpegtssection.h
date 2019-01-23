@@ -429,6 +429,9 @@ GstMpegtsSection *gst_mpegts_section_new (guint16 pid,
 GST_MPEGTS_API
 guint8 *gst_mpegts_section_packetize (GstMpegtsSection * section, gsize * output_size);
 
+GST_MPEGTS_API
+guint32 _calc_crc32 (const guint8 *data, guint datalen);
+
 G_END_DECLS
 
 #endif				/* GST_MPEGTS_SECTION_H */

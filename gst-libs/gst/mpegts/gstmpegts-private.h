@@ -30,7 +30,6 @@ GST_DEBUG_CATEGORY_EXTERN (mpegts_debug);
 #define GST_CAT_DEFAULT mpegts_debug
 
 G_GNUC_INTERNAL void __initialize_descriptors (void);
-G_GNUC_INTERNAL guint32 _calc_crc32 (const guint8 *data, guint datalen);
 G_GNUC_INTERNAL gchar *get_encoding_and_convert (const gchar *text, guint length);
 G_GNUC_INTERNAL gchar *convert_lang_code (guint8 * data);
 G_GNUC_INTERNAL guint8 *dvb_text_from_utf8 (const gchar * text, gsize *out_size);
