@@ -357,7 +357,7 @@ prepare_src_pad (MpegTSBase * base, MpegTSParse2 * parse)
   gst_caps_unref (caps);
 
   /* If setting output timestamps, ensure that the output segment is TIME */
-  if (parse->set_timestamps == FALSE || base->segment.format == GST_FORMAT_TIME)
+  if (parse->set_timestamps == FALSE && base->segment.format != GST_FORMAT_UNDEFINED)
     gst_pad_push_event (parse->srcpad, gst_event_new_segment (&base->segment));
   else {
     GstSegment seg;
@@ -525,6 +525,15 @@ mpegts_parse_request_new_pad (GstElement * element, GstPadTemplate * template,
   g_free (stream_id);
 
   gst_element_add_pad (element, pad);
+
+  /* If setting output timestamps, ensure that the output segment is TIME */
+  if (parse->set_timestamps == FALSE && base->segment.format != GST_FORMAT_UNDEFINED)
+    gst_pad_push_event (pad, gst_event_new_segment (&base->segment));
+  else {
+    GstSegment seg;
+    gst_segment_init (&seg, GST_FORMAT_TIME);
+    gst_pad_push_event (pad, gst_event_new_segment (&seg));
+  }
 
   return pad;
 }
