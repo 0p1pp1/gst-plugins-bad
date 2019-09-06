@@ -1498,7 +1498,8 @@ mpegts_base_get_tags_from_eit (MpegTSBase * base, GstMpegtsSection * section)
       GstMpegtsEITEvent *event = g_ptr_array_index (eit->events, i);
       const GstMpegtsDescriptor *desc;
 
-      if (event->running_status == RUNNING_STATUS_RUNNING) {
+#define ISDB 1
+      if (event->running_status == RUNNING_STATUS_RUNNING || ISDB) {
         program->event_id = event->event_id;
         if ((desc =
                 gst_mpegts_find_descriptor (event->descriptors,
