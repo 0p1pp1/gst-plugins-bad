@@ -808,8 +808,9 @@ mpegts_parse_tspad_push (MpegTSParse2 * parse, MpegTSParsePad * tspad,
         || bp->streams[packet->pid]) {
       GstBuffer *buf = mpegts_packet_to_buffer (packet);
       /* push if there's no filter or if the pid is in the filter */
-      ret = gst_pad_push (tspad->pad, buf);
-      ret = gst_flow_combiner_update_flow (parse->flowcombiner, ret);
+      ret =
+          enqueue_and_maybe_push_buffer (parse, tspad->pad, &tspad->ts_adapter,
+          buf);
     }
   }
   GST_DEBUG_OBJECT (parse, "Returning %s", gst_flow_get_name (ret));
