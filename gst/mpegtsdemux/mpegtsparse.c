@@ -352,23 +352,10 @@ mpegts_parse_get_property (GObject * object, guint prop_id,
   }
 }
 
-static gboolean
-prepare_src_pad (MpegTSBase * base, MpegTSParse2 * parse)
+static void
+_pad_stream_start (MpegTSParse2 * parse, GstPad * pad, gchar * stream_id)
 {
   GstEvent *event;
-  gchar *stream_id;
-  GstCaps *caps;
-
-  if (!parse->first)
-    return TRUE;
-
-  /* If there's no packet_size yet, we can't set caps yet */
-  if (G_UNLIKELY (base->packetizer->packet_size == 0))
-    return FALSE;
-
-  stream_id =
-      gst_pad_create_stream_id (parse->srcpad, GST_ELEMENT_CAST (base),
-      "multi-program");
 
   event =
       gst_pad_get_sticky_event (parse->parent.sinkpad, GST_EVENT_STREAM_START,
@@ -387,17 +374,26 @@ prepare_src_pad (MpegTSBase * base, MpegTSParse2 * parse)
   if (parse->have_group_id)
     gst_event_set_group_id (event, parse->group_id);
 
-  gst_pad_push_event (parse->srcpad, event);
-  g_free (stream_id);
+  gst_pad_push_event (pad, event);
+}
+
+static void
+_pad_new_segment (GstPad * pad, MpegTSParse2 * parse)
+{
+  MpegTSBase *base = GST_MPEGTS_BASE (parse);
+  GstCaps *caps;
 
   caps = gst_caps_new_simple ("video/mpegts",
       "systemstream", G_TYPE_BOOLEAN, TRUE,
       "packetsize", G_TYPE_INT, base->packetizer->packet_size, NULL);
 
-  gst_pad_set_caps (parse->srcpad, caps);
+  gst_pad_set_caps (pad, caps);
   gst_caps_unref (caps);
 
-  /* If setting output timestamps, ensure that the output segment is TIME */
+  if (pad != parse->srcpad) {
+    ;                           /* do nothing. base->out_segment should be already set. */
+  } else
+    /* If setting output timestamps, ensure that the output segment is TIME */
   if (parse->set_timestamps == FALSE || base->segment.format == GST_FORMAT_TIME)
     /* Just use the upstream segment */
     base->out_segment = base->segment;
@@ -407,8 +403,30 @@ prepare_src_pad (MpegTSBase * base, MpegTSParse2 * parse)
     GST_DEBUG_OBJECT (parse,
         "Generating time output segment %" GST_SEGMENT_FORMAT, seg);
   }
-  gst_pad_push_event (parse->srcpad,
-      gst_event_new_segment (&base->out_segment));
+  gst_pad_push_event (pad, gst_event_new_segment (&base->out_segment));
+}
+
+static gboolean
+prepare_src_pad (MpegTSBase * base, MpegTSParse2 * parse)
+{
+  gchar *stream_id;
+
+  if (!parse->first)
+    return TRUE;
+
+  /* If there's no packet_size yet, we can't set caps yet */
+  if (G_UNLIKELY (base->packetizer->packet_size == 0))
+    return FALSE;
+
+  stream_id =
+      gst_pad_create_stream_id (parse->srcpad, GST_ELEMENT_CAST (base),
+      "multi-program");
+  _pad_stream_start (parse, parse->srcpad, stream_id);
+  g_free (stream_id);
+
+  _pad_new_segment (parse->srcpad, parse);
+
+  g_list_foreach (parse->srcpads, (GFunc) _pad_new_segment, parse);
 
   parse->first = FALSE;
 
@@ -557,7 +575,6 @@ mpegts_parse_request_new_pad (GstElement * element, GstPadTemplate * template,
   MpegTSParseProgram *parseprogram;
   GstPad *pad;
   gint program_num = -1;
-  GstEvent *event;
   gchar *stream_id;
 
   g_return_val_if_fail (template != NULL, NULL);
@@ -583,33 +600,19 @@ mpegts_parse_request_new_pad (GstElement * element, GstPadTemplate * template,
   }
 
   pad = tspad->pad;
-  parse->srcpads = g_list_append (parse->srcpads, pad);
 
   gst_pad_set_active (pad, TRUE);
 
   stream_id = gst_pad_create_stream_id (pad, element, padname + 8);
-
-  event =
-      gst_pad_get_sticky_event (parse->parent.sinkpad, GST_EVENT_STREAM_START,
-      0);
-  if (event) {
-    if (gst_event_parse_group_id (event, &parse->group_id))
-      parse->have_group_id = TRUE;
-    else
-      parse->have_group_id = FALSE;
-    gst_event_unref (event);
-  } else if (!parse->have_group_id) {
-    parse->have_group_id = TRUE;
-    parse->group_id = gst_util_group_id_next ();
-  }
-  event = gst_event_new_stream_start (stream_id);
-  if (parse->have_group_id)
-    gst_event_set_group_id (event, parse->group_id);
-
-  gst_pad_push_event (pad, event);
+  _pad_stream_start (parse, pad, stream_id);
   g_free (stream_id);
 
   gst_element_add_pad (element, pad);
+
+  if (!parse->first)
+    _pad_new_segment (pad, parse);
+
+  parse->srcpads = g_list_append (parse->srcpads, pad);
 
   return pad;
 }
