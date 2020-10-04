@@ -1516,7 +1516,7 @@ mpegts_base_get_tags_from_eit (MpegTSBase * base, GstMpegtsSection * section)
                   GST_TAG_TITLE, name, NULL);
               g_free (name);
             }
-            if (text) {
+            if (text && text[0]) {
               gst_tag_list_add (program->tags, GST_TAG_MERGE_APPEND,
                   GST_TAG_DESCRIPTION, text, NULL);
               g_free (text);
