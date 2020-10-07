@@ -1044,7 +1044,7 @@ drain_pending_buffers (MpegTSParse2 * parse, gboolean drain_all)
       return GST_FLOW_OK;
   }
 
-  GST_INFO_OBJECT (parse, "Pushing buffers - startTS %" GST_TIME_FORMAT
+  GST_DEBUG_OBJECT (parse, "Pushing buffers - startTS %" GST_TIME_FORMAT
       " duration %" GST_TIME_FORMAT " %" G_GSIZE_FORMAT " bytes",
       GST_TIME_ARGS (start_ts), GST_TIME_ARGS (pcr_diff), pcr_bytes);
 
