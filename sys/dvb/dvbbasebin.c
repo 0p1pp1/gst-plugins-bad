@@ -582,19 +582,34 @@ dvb_base_bin_set_program_numbers (DvbBaseBin * dvbbasebin, const gchar * pn)
 {
   gchar **strv, **walk;
   DvbBaseBinProgram *program;
+  gboolean update_filter;
 
   /* Split up and update programs */
   strv = g_strsplit (pn, ":", 0);
 
+  update_filter = FALSE;
   for (walk = strv; *walk; walk++) {
     gint program_number = strtol (*walk, NULL, 0);
 
     program = dvb_base_bin_get_program (dvbbasebin, program_number);
     if (program == NULL) {
       program = dvb_base_bin_add_program (dvbbasebin, program_number);
+    }
+    if (program && !program->selected) {
       program->selected = TRUE;
+      if (program->pmt_pid != G_MAXUINT16) {
+        DvbBaseBinStream *stream;
+
+        stream = dvb_base_bin_get_stream (dvbbasebin, program->pmt_pid);
+        if (stream == NULL)
+          stream = dvb_base_bin_add_stream (dvbbasebin, program->pmt_pid);
+        dvb_base_bin_ref_stream (stream);
+        update_filter = TRUE;
+      }
     }
   }
+  if (update_filter)
+    dvb_base_bin_rebuild_filter (dvbbasebin);
 
   g_strfreev (strv);
 
