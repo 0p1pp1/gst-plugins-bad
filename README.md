@@ -1,6 +1,6 @@
 # gstreamer-1.xを用いたDVBアクセス, TSファイル再生用パッチ #
 
-gstremer-1.14のgst-plugins-badへISDB向けの機能追加・修正をする.
+gstremer-1.18のgst-plugins-badへISDB向けの機能追加・修正をする.
 
 ## 変更箇所 ##
 
@@ -28,14 +28,22 @@ gstremer-1.14のgst-plugins-badへISDB向けの機能追加・修正をする.
 
 ## パッチの内容 ##
 
-### ver0.1の内容 ###
+### 本ブランチ(isdb/1.18)の内容 ###
+ - EPG情報を用いた、番組の受け継ぎ(リレー)視聴・録画への予備対応 \
+  (NHK BS101->BS102でのスポーツ中継番組継続などで使われる) \
+  dvb_appsの`{dvb_sched_ev3,dvbevrec3}`でリレー録画には対応したが、
+  現状では再生時にリレーできずに終わってしまう。(録画自体は続けて出来ている)
+
+ - isdb/1.16を本家1.18へrebase、本家1.18の小修正/デバッグ
+
+### これまで(isdb/1.16...)の内容 ###
 
  - EIT情報の取り出し・利用機能の日本向け修正
     (イベント追従の予約録画スクリプト dvb_sched_ev3/dvbevrec3で利用)
 
  - DVBモジュールのS2API対応 (チャンネル定義ファイルの形式)
 
- - mplayerと同様なURI `dvb://<adapter-No>@<channel-name>`形式のサポート
+ - mpv/mplayerと同様なURI `dvb://<adapter-No>@<channel-name>`形式のサポート
 
  - AAC音声再生機能の強化(デュアルモノ対応, チャンネル構成切り替わり対応)
    なお、playbinなどでデュアルモノを再生するためには、
@@ -53,62 +61,10 @@ gstremer-1.14のgst-plugins-badへISDB向けの機能追加・修正をする.
     DVBデバイスだけでなく,保存したTSファイルにも対応
     libdemulti2については配布しない。 インターフェースについてはdemulti2.hを参照
 
-
-## ビルド方法 その1(未確認) ##
-   システムにインストールされている既存の(-devel)パッケージを使用する。
-   次に挙げる"Un-installed"の方法に比べ簡単であるが、
-   システムにインストールされているgstreamer, gst-plugins-baseモジュールが
-   バージョン1.14以上でないとビルドできない。
-
- 1. ソース準備
-    ブランチ1.14をチェックアウトする。
-
-        git clone [--depth 1] https://github.com/0p1pp1/gst-plugins-bad.git
-        git checkout isdb/1.14
-
-  あるいは以前にレポジトリをclone済みの場合は、以下でソースを更新
-
-        git pull origin isdb/1.14
-
- 2. 依存パッケージのインストール
-    以下の各パッケージがインストールされている必要がある.(パッケージ名はFedoraの場合)
-
-        gstreamer1-devel, gstreamer1-plugins-base-devel,
-        gstreamer1-plugins-bad-free-devel?, etc.;)
-
- 3. configure再作成
-    本パッチでは, 復号ライブラリの検出・設定のためconfigure.acを変更しているので,
-    いきなり`./configure;make`ではNGで、 `./autogen.sh`の実行が必要.
-
-        cd gst-plugins-bad; ./autogen.sh --prefix=/usr --libdir=/usr/lib64
-
-    あるいは
-
-        cd gst-plugins-bad; NOCONFIGURE=1 ./autogen.sh; ./configure .....
-
- 4. ビルドとインストール
-
-        pushd gst-libs/gst/mpegts/
-        make
-        sudo cp .libs/libgstmpegts-1.0.so.xx.xx /usr/local/lib64/; ldconfig
-        sudo cp GstMpegts-1.0.typelib /usr/lib64/girepository-1.0/
-        # FIXME ↑ この辺よくわかってない;)
-        # /usr/local/lib64/girepository-1.0/ とか ~/.local/lib64/... とかに置けるのかも
-        # あるいは どこか好きなとこに置いて、export GI_TYPELIB_PATH=foo/bar するとか
-        popd; pushd gst/mpegtsdemux
-        make; cp .libs/libgstmpegtsdemux.so ~/.local/share/gstreamer-1.0/plugins/
-        popd; pushd sys/dvb
-        make; cp .libs/libgstdvb.so ~/.local/share/gstreamer-1.0/plugins/
-        popd; pushd ext/faad
-        make; cp .libs/libgstfaad.so ~/.local/share/gstreamer-1.0/plugins/
-
-  レジストリキャッシュ(~/.cache/gstreamer-1.0/registry.x86_64.bin)の削除が必要かも
-
-
-## ビルド方法 その2: "un-installed"ビルド ##
+## ビルド方法 その1: "un-installed"ビルド ##
   システムにインストールされているgstreamerパッケージを使用せず、
-  すべて自前でソースからコンパイルし、インストールせずにそのまま使用する方法
-  （gstreamer/scripts/gst-unintalled を使用する方法。 詳細は同ファイルを参照)
+  すべて自前でソースからコンパイルし、インストールせずにそのまま使用する方法。
+  ビルドシステムとして、gstreamerのgithubからgst-buildを持ってきて使用する。 (詳細はgst-build/README.mdを参照)
 
   システムにgstreamerがインストールされてなくても、バージョンが合わなく(古く)ても
   利用できる方法であるが、逆にシステムにインストールされている各プラグインは全く
@@ -116,27 +72,84 @@ gstremer-1.14のgst-plugins-badへISDB向けの機能追加・修正をする.
   利用する可能性のあるプラグインはすべてビルドしなければならない。
 
  1. ソース準備
-    - mkdir -p ~/gst/1.14
-    - gstreamer本家から gst-plugins-bad以外の必要なモジュールを入手し、
-        gstreamer,gst-plugins-badは >= 1.14をチェックアウト/ダウンロード。
-        他のモジュールは1.14.xxならばおそらくOK。 ~/gst/1.14/に配置すること。
-    - ln -s ~/gst/1.14/gstreamer/scripts/gst-uninstalled ~/gst/gst-1.14
+    - mkdir git; cd git
+    - git clone https://github.com/0p1pp1/gst-plugins-bad
+    - git clone https://github.com/gstreamer/gst-build
+    - mkdir -p ~/gst/1.18
+    - cd gst-build; ./gst-worktree.py add ~/gst/1.18 origin/1.18
+    - ~/gst/1.18/subprojects/gst-plugins-bad.wrapを編集し、
+      url(とpush-url), revisionをISDB版を指すように変更する。
+```
+[wrap-git]
+directory=gst-plugins-bad
+url=file:///...../git/gst-plugins-bad
+push-url=file:///..../git/gst-plugins-bad
+revision=isdb/1.18
+```
 
-    - パッチ済みのgst-plugins-bad (isdb/1.14ブランチ)を入手. ~/gst/1.14/に配置。
-       上記ビルド方法その1の1.を参照
-
- 2. ビルド準備
-  ~/gst/gst-1.14を実行し、各種環境変数がセットされたシェルを起動する
-
- 3. ビルド
-   ライブラリなどの依存関係があるため、 gstreamer, gst-plugins-base を先にビルド
-   あとは必要なモジュールをすべてビルドする。
-   (できあがったライブラリをどこか別の場所にインストールする必要はない)
+ 2. ビルド(例)
+```
+cd ~/gst/1.18; ./gst-env.py
+mkdir build
+meson -Dugly=disabled -Dges=disabled -Drstp_server=disabled -Dvaapi=enabled \
+  -Dgst-examples=disabled -Dqt5=disabled -Dtests=disabled -Dexamples=disabled \
+  -Ddoc=disabled -Dbuildtype=release -Dbackend=ninja builddir
+ninja -C build
+```
+   (できあがったライブラリ等をどこか別の場所にインストールする必要はない。)
 
  4. アプリ実行
-  上記2.で起動したシェルで `gst-launch-1.0 ...` か、 あるいは、
-  `gst-1.14 gst-launch-1.0 ...`
+   `~/gst/1.18/gst-env.py gst-launch-1.0 ...`
+    (gst-env.pyが各種環境変数を適切な値に設定する)
 
+
+## ビルド方法 その2(未確認, *非推奨*) ##
+   システムにインストールされている既存の(-devel)パッケージを使用し、
+   修正のあるプラグインだけビルド・インストールする。
+   上に挙げる"Un-installed"の方法に比べ高速・軽量であるが、
+   システムにインストールされているgstreamerの各パッケージが
+   バージョン1.18(以上?)でないとビルドできない。
+   またプラグインやGObject型情報のレポジトリ, 依存ライブラリなどで依存関係や互換性が壊れ失敗する可能性が高い。
+
+ 1. ソース準備
+    ブランチ1.18をチェックアウトする。
+
+        git clone [--depth 1] https://github.com/0p1pp1/gst-plugins-bad.git
+        git checkout isdb/1.18
+
+  あるいは以前にレポジトリをclone済みの場合は、以下でソースを更新
+
+        git pull origin isdb/1.18
+
+ 2. 依存パッケージのインストール
+    以下の各パッケージがインストールされている必要がある.(パッケージ名はFedoraの場合)
+
+        gstreamer1-devel, gstreamer1-plugins-base-devel,
+        gstreamer1-plugins-bad-free-devel?, etc.;)
+
+ 3. 構成(コンフィグ)
+
+        cd gst-plugins-bad; mkdir builddir;
+        meson -Dauto_features=disabled -Dintrospection=enabled -Dfaad=enabled \
+              -Ddvb=enabled builddir -Dmepgtsdemux=enabled builddir
+
+ 4. ビルドとインストール
+
+        ninja -C builddir
+        pushd builddir/gst-lib/gst/mpegts
+        sudo cp libgstmpegts-1.0.so.xx.xx /usr/local/lib64/; sudo ldconfig
+        sudo cp GstMpegts-1.0.typelib /usr/lib64/girepository-1.0/
+        # FIXME ↑ この辺よくわかってない;)
+        # /usr/local/lib64/girepository-1.0/ とか ~/.local/lib64/... とかに置けるのかも
+        # あるいは どこか好きなとこに置いて、export GI_TYPELIB_PATH=foo/bar するとか
+        pushd builddir/gst/mpegtsdemux
+        cp libgstmpegtsdemux.so ~/.local/share/gstreamer-1.0/plugins/
+        popd; pushd builddir/sys/dvb
+        cp libgstdvb.so ~/.local/share/gstreamer-1.0/plugins/
+        popd; pushd builddir/ext/faad
+        cp libgstfaad.so ~/.local/share/gstreamer-1.0/plugins/
+
+  レジストリキャッシュ(~/.cache/gstreamer-1.0/registry.x86_64.bin)の削除が必要かも
 
 ## 利用例 ##
 
@@ -146,14 +159,14 @@ gstremer-1.14のgst-plugins-badへISDB向けの機能追加・修正をする.
 
   gstreamerからdvb://のURIでアクセスするためには
   ~/.config/gstreamer-1.0/dvb-channels.conf に .mplayer/channels.conf[.s2] と同形式の
-  チャンネル定義ファイルを作成しておく必要がある。 (mplayer用のファイルにlnしても可)
-  mplayerのチャンネル定義ファイルのフォーマットの例:
+  チャンネル定義ファイルを作成しておく必要がある。 (mplayer/mpv用のファイルにlnしても可)
+  mplayer/mpvのチャンネル定義ファイルのフォーマットの例:
     NHK:DTV_DELIVERY_SYSTEM=8|DTV_FREQUENCY=515142857:33792
     NHKBS1:DTV_DELIVERTY_SYSTEM=9|DTV_FREQUENCY=1318000|DTV_STREAM_ID=0x40f1:101
 
 ### 予約録画とか: ###
 dvb_appsのスクリプト経由で.(詳しくはreadme-scripts.txtを参照 + 各コマンドの--help)
 
-    dvb_sched_ev3 10:00 -c NHKBS1 -o ~/foo.ts
+    dvb_sched_ev3 10:00 -a 4 -c NHKBS1 -i -o ~/foo.ts
 
 
