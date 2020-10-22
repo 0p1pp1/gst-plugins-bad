@@ -872,8 +872,13 @@ mpegts_parse_push (MpegTSBase * base, MpegTSPacketizerPacket * packet,
       if (section ||
           (!MPEGTS_BIT_IS_SET (base->is_pes, packet->pid) &&
               MPEGTS_BIT_IS_SET (base->known_psi, packet->pid))) {
-        tspad->flow_return =
-            mpegts_parse_tspad_push_section (parse, tspad, section, packet);
+        /* exclude foreign PMTs */
+        if (packet->pid >= 0x30 && tspad->program
+            && tspad->program->program.pmt_pid != packet->pid)
+          tspad->flow_return = GST_FLOW_OK;
+        else
+          tspad->flow_return =
+              mpegts_parse_tspad_push_section (parse, tspad, section, packet);
       } else {
         tspad->flow_return = mpegts_parse_tspad_push (parse, tspad, packet);
       }
